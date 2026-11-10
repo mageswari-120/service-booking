@@ -1,0 +1,333 @@
+/* Booking button + popup. Inherits the theme's font and text colour; the
+   block's accent colour marks the button, selected day and selected time. */
+
+.sb-booking {
+  --sb-accent: #000;
+  --sb-on-accent: #fff;
+  --sb-bg: #fff;
+  --sb-fg: #1a1a1a;
+  --sb-border: rgba(0, 0, 0, 0.14);
+  --sb-soft: rgba(0, 0, 0, 0.05);
+  --sb-muted: rgba(0, 0, 0, 0.55);
+  margin: 1rem 0;
+  font: inherit;
+}
+
+.sb-booking[hidden],
+.sb-hide {
+  display: none !important;
+}
+
+/* With a bookable service selected, our button replaces the theme's buy
+   controls. Scoped to the product section that holds the block. */
+.sb-has-booking form[action*="/cart/add"] [type="submit"],
+.sb-has-booking [name="add"],
+.sb-has-booking .shopify-payment-button {
+  display: none !important;
+}
+
+.sb-trigger,
+.sb-book {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.75rem 1.25rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: var(--sb-accent);
+  color: var(--sb-on-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sb-book {
+  width: auto;
+  min-width: 10rem;
+}
+
+.sb-book:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sb-summary:empty {
+  display: none;
+}
+
+.sb-summary {
+  margin: 0.5rem 0 0;
+  font-size: 0.95em;
+}
+
+/* --- Dialog ------------------------------------------------------------ */
+
+.sb-modal {
+  width: min(56rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  border: 0;
+  border-radius: 1rem;
+  background: var(--sb-bg);
+  color: var(--sb-fg);
+  font: inherit;
+  box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.25);
+}
+
+.sb-modal::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.sb-modal__panel {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+}
+
+.sb-modal__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem 1rem;
+  border-bottom: 1px solid var(--sb-border);
+}
+
+.sb-modal__title {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.25;
+}
+
+.sb-modal__zone,
+.sb-modal__desc {
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
+}
+
+.sb-modal__zone,
+.sb-muted {
+  color: var(--sb-muted);
+}
+
+.sb-modal__close {
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sb-modal__close:hover {
+  background: var(--sb-soft);
+}
+
+.sb-modal__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 2rem;
+  padding: 1.25rem 1.5rem;
+  overflow-y: auto;
+}
+
+.sb-modal__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--sb-border);
+}
+
+.sb-modal__status {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.sb-modal__status.sb-error {
+  color: #b42318;
+}
+
+/* --- Calendar ---------------------------------------------------------- */
+
+.sb-cal__head,
+.sb-times__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.sb-cal__nav {
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid var(--sb-border);
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.sb-cal__nav:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.sb-cal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.3rem;
+  text-align: center;
+}
+
+.sb-cal__dow {
+  padding: 0.3rem 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--sb-muted);
+}
+
+.sb-cal__day {
+  aspect-ratio: 1;
+  min-height: 2.25rem;
+  border: 0;
+  border-radius: 0.4rem;
+  background: var(--sb-soft);
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sb-cal__day:disabled {
+  background: transparent;
+  font-weight: 400;
+  color: var(--sb-muted);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.sb-cal__day:not(:disabled):hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.sb-cal__day[aria-pressed="true"],
+.sb-time[aria-pressed="true"],
+.sb-toggle [aria-pressed="true"] {
+  background: var(--sb-accent);
+  border-color: var(--sb-accent);
+  color: var(--sb-on-accent);
+}
+
+/* --- Times ------------------------------------------------------------- */
+
+.sb-toggle {
+  display: inline-flex;
+  padding: 0.2rem;
+  border-radius: 999px;
+  background: var(--sb-soft);
+}
+
+.sb-toggle button {
+  padding: 0.3rem 0.75rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sb-times__list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.sb-time {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 3rem;
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--sb-border);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sb-time:hover {
+  border-color: currentColor;
+}
+
+.sb-time small {
+  padding: 0.15rem 0.45rem;
+  border: 1px solid currentColor;
+  border-radius: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.sb-time:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.sb-booking button:focus-visible {
+  outline: 2px solid var(--sb-accent);
+  outline-offset: 2px;
+}
+
+/* --- Phones: full-screen sheet, calendar above times ------------------- */
+
+@media (max-width: 749px) {
+  .sb-modal {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  .sb-modal__panel {
+    height: 100%;
+  }
+
+  .sb-modal__head,
+  .sb-modal__body,
+  .sb-modal__foot {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .sb-modal__body {
+    flex: 1;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+  }
+
+  .sb-modal__foot {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sb-book {
+    width: 100%;
+  }
+}

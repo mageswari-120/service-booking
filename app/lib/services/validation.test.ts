@@ -1,0 +1,137 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  minutesToHhMm,
+  parseServiceInput,
+  type ServiceFormInput,
+} from "./validation";
+
+function valid(overrides: Partial<ServiceFormInput> = {}): ServiceFormInput {
+  return {
+    shopifyProductId: "gid://shopify/Product/1",
+    shopifyVariantId: "gid://shopify/ProductVariant/2",
+    title: "  Haircut  ",
+    active: true,
+    durationMinutes: "60",
+    bufferBeforeMinutes: "0",
+    bufferAfterMinutes: "15",
+    slotIntervalMinutes: "",
+    leadTimeMinutes: "120",
+    maxAdvanceDays: "60",
+    capacityPerSlot: "1",
+    timezone: "",
+    windows: [{ dayOfWeek: 1, start: "09:00", end: "17:00" }],
+    ...overrides,
+  };
+}
+
+function errorsOf(input: ServiceFormInput) {
+  const result = parseServiceInput(input);
+  if (result.ok) throw new Error("expected validation to fail");
+  return result.errors;
+}
+
+describe("parseServiceInput", () => {
+  it("accepts a valid form and normalises it", () => {
+    const result = parseServiceInput(valid());
+    expect(result).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        title: "Haircut",
+        durationMinutes: 60,
+        bufferAfterMinutes: 15,
+        slotIntervalMinutes: null,
+        timezone: null,
+        windows: [{ dayOfWeek: 1, startMinute: 540, endMinute: 1020 }],
+      }),
+    });
+  });
+
+  it("allows a service with no opening hours yet", () => {
+    expect(parseServiceInput(valid({ windows: [] })).ok).toBe(true);
+  });
+
+  it("requires a product variant", () => {
+    expect(errorsOf(valid({ shopifyVariantId: "" }))).toHaveProperty(
+      "shopifyVariantId",
+    );
+    expect(errorsOf(valid({ shopifyProductId: "" }))).toHaveProperty(
+      "shopifyVariantId",
+    );
+  });
+
+  it("rejects non-integer and out-of-range numbers", () => {
+    const errors = errorsOf(
+      valid({ durationMinutes: "1.5", capacityPerSlot: "0", maxAdvanceDays: "" }),
+    );
+    expect(Object.keys(errors).sort()).toEqual([
+      "capacityPerSlot",
+      "durationMinutes",
+      "maxAdvanceDays",
+    ]);
+  });
+
+  it("keeps an explicit slot interval", () => {
+    const result = parseServiceInput(valid({ slotIntervalMinutes: "30" }));
+    expect(result.ok && result.data.slotIntervalMinutes).toBe(30);
+  });
+
+  it("validates the timezone override", () => {
+    expect(errorsOf(valid({ timezone: "Mars/Olympus" }))).toHaveProperty("timezone");
+    const result = parseServiceInput(valid({ timezone: "Asia/Kolkata" }));
+    expect(result.ok && result.data.timezone).toBe("Asia/Kolkata");
+  });
+
+  it("treats a 00:00 closing time as midnight", () => {
+    const result = parseServiceInput(
+      valid({ windows: [{ dayOfWeek: 5, start: "18:00", end: "00:00" }] }),
+    );
+    expect(result.ok && result.data.windows[0].endMinute).toBe(1440);
+  });
+
+  it("rejects hours that close before they open", () => {
+    expect(
+      errorsOf(valid({ windows: [{ dayOfWeek: 1, start: "17:00", end: "09:00" }] })),
+    ).toEqual({ "windows.0": "Closing time must be after opening time." });
+  });
+
+  it("rejects hours too short to fit one appointment", () => {
+    expect(
+      errorsOf(valid({ windows: [{ dayOfWeek: 1, start: "09:00", end: "09:30" }] })),
+    ).toHaveProperty("windows.0");
+  });
+
+  it("puts the overlap error on the later row, past an earlier bad row", () => {
+    const errors = errorsOf(
+      valid({
+        windows: [
+          { dayOfWeek: 2, start: "bad", end: "10:00" },
+          { dayOfWeek: 1, start: "09:00", end: "13:00" },
+          { dayOfWeek: 1, start: "12:00", end: "17:00" },
+        ],
+      }),
+    );
+    expect(errors["windows.0"]).toBe("Use a valid time.");
+    expect(errors["windows.2"]).toBe("Overlaps other Monday hours.");
+    expect(errors).not.toHaveProperty("windows.1");
+  });
+
+  it("allows back-to-back windows on the same day", () => {
+    const result = parseServiceInput(
+      valid({
+        windows: [
+          { dayOfWeek: 1, start: "13:00", end: "17:00" },
+          { dayOfWeek: 1, start: "09:00", end: "13:00" },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("minutesToHhMm", () => {
+  it("formats minutes and wraps midnight", () => {
+    expect(minutesToHhMm(545)).toBe("09:05");
+    expect(minutesToHhMm(1440)).toBe("00:00");
+  });
+});

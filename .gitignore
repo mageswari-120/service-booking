@@ -1,0 +1,23 @@
+node_modules
+.DS_Store
+
+/.cache
+/build
+/app/build
+/public/build/
+/public/_dev
+/app/public/build
+
+.env
+.env.*
+
+# package-lock.json is committed on purpose: the @shopify/shopify-api
+# override only reproduces from the lockfile.
+yarn.lock
+pnpm-lock.yaml
+
+/extensions/*/dist
+
+# Ignore shopify files created during app dev
+.shopify/*
+.shopify.lock

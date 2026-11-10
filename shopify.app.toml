@@ -1,0 +1,90 @@
+# Shopify app configuration for Service Booking.
+#
+# Identity fields (client_id, application_url, auth.redirect_urls) are managed
+# by the CLI: `shopify app dev` rewrites the URLs to the tunnel on every run.
+# Do not hand-edit them. Everything below them — scopes, the app proxy and the
+# webhook list — is ours to maintain.
+#
+# Never answer "yes" when `config link` offers to replace this file with the
+# remote config: the remote copy of a new app is empty and wipes the scopes.
+
+client_id = "bb2a5e647aa050c1e2059f6fe8bc367d"
+name = "service-booking"
+application_url = "https://example.com"
+embedded = true
+
+[access_scopes]
+# read/write_products  — create and link the product that backs each service
+# read_orders          — orders/create payload, to turn a paid order into a booking
+# write_draft_orders   — $0 bookings when Shop.freeBookingMode = DRAFT_ORDER
+# read/write_customers — match the booker and tag their customer record
+# write_app_proxy      — required by Shopify for any app that declares [app_proxy]
+#
+# Reading customer email and name from an order is Protected Customer Data, so
+# the app needs that approval at review. It is unavoidable for a booking app —
+# a confirmation email has to go somewhere — but keep the field list minimal.
+# https://shopify.dev/docs/apps/launch/protected-customer-data
+scopes = "read_products,write_products,read_orders,write_draft_orders,read_customers,write_customers,write_app_proxy"
+
+[auth]
+redirect_urls = [ "https://example.com/api/auth" ]
+
+[app_proxy]
+# Storefront-visible path is <shop>/apps/booking/*, which the theme app
+# extension fetches for availability. The CLI rewrites `url` to the tunnel
+# during `shopify app dev` and to the production host on deploy.
+url = "https://example.com/proxy"
+subpath = "booking"
+prefix = "apps"
+
+[webhooks]
+# Keep in step with ApiVersion in app/shopify.server.ts. Do not let the CLI
+# bump this to a release candidate.
+api_version = "2026-10"
+
+  # Handled by: app/routes/webhooks.app.uninstalled.tsx
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+  # Handled by: app/routes/webhooks.app.scopes_update.tsx
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+  # The booking pipeline. orders/create is the one that actually creates a
+  # Booking row; the other two release the slot again.
+  #
+  # TEMPORARILY DISABLED: order topics carry protected customer data, and
+  # Shopify refuses to register them until "Protected customer data access"
+  # is filled in for this app (Dev/Partner Dashboard → API access). Re-enable
+  # these three once that form is saved and the orders/create handler exists.
+  # [[webhooks.subscriptions]]
+  # topics = [ "orders/create" ]
+  # uri = "/webhooks/orders/create"
+  #
+  # [[webhooks.subscriptions]]
+  # topics = [ "orders/cancelled" ]
+  # uri = "/webhooks/orders/cancelled"
+  #
+  # [[webhooks.subscriptions]]
+  # topics = [ "refunds/create" ]
+  # uri = "/webhooks/refunds/create"
+
+  # Mandatory compliance topics for a public app.
+  # https://shopify.dev/docs/apps/build/privacy-law-compliance
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/data_request"
+  compliance_topics = [ "customers/data_request" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/redact"
+  compliance_topics = [ "customers/redact" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/shop/redact"
+  compliance_topics = [ "shop/redact" ]
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true

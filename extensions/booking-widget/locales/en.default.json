@@ -1,0 +1,19 @@
+{
+  "booking": {
+    "timezone": "Timezone: {{ zone }}",
+    "close": "Close",
+    "loading": "Loading…",
+    "no_dates": "No dates available this month.",
+    "no_times": "No times left on this day. Please pick another date.",
+    "previous_month": "Previous month",
+    "next_month": "Next month",
+    "pick_time": "Pick a date and time.",
+    "held": "Reserved for you until {{ time }}",
+    "available": "{{ count }} / {{ total }} available",
+    "book_now": "Book now",
+    "taken": "That time was just taken. Please pick another.",
+    "error": "Something went wrong. Please try again.",
+    "hour_12": "AM/PM",
+    "hour_24": "24h"
+  }
+}

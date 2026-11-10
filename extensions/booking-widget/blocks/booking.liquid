@@ -1,0 +1,112 @@
+{%- comment -%}
+  Booking button + popup for service products.
+
+  Renders hidden. booking.js asks the app (through the /apps/booking proxy)
+  whether the selected variant is a bookable service; only then does it show
+  the "Select a time" button and hide the theme's own buy buttons. On any other
+  product the block stays hidden, so it is safe on a shared product template.
+{%- endcomment -%}
+
+{%- if product -%}
+  <div
+    class="sb-booking"
+    hidden
+    data-sb-booking
+    data-variant-id="{{ product.selected_or_first_available_variant.id }}"
+    data-proxy="/apps/booking"
+    data-week-start="{{ block.settings.week_start }}"
+    data-i18n-timezone="{{ 'booking.timezone' | t: zone: '__ZONE__' | escape }}"
+    data-i18n-close="{{ 'booking.close' | t | escape }}"
+    data-i18n-loading="{{ 'booking.loading' | t | escape }}"
+    data-i18n-no-dates="{{ 'booking.no_dates' | t | escape }}"
+    data-i18n-no-times="{{ 'booking.no_times' | t | escape }}"
+    data-i18n-previous-month="{{ 'booking.previous_month' | t | escape }}"
+    data-i18n-next-month="{{ 'booking.next_month' | t | escape }}"
+    data-i18n-pick-time="{{ 'booking.pick_time' | t | escape }}"
+    data-i18n-held="{{ 'booking.held' | t: time: '__TIME__' | escape }}"
+    data-i18n-available="{{ 'booking.available' | t: count: '__COUNT__', total: '__TOTAL__' | escape }}"
+    data-i18n-book-now="{{ 'booking.book_now' | t | escape }}"
+    data-i18n-taken="{{ 'booking.taken' | t | escape }}"
+    data-i18n-error="{{ 'booking.error' | t | escape }}"
+    data-i18n-hour12="{{ 'booking.hour_12' | t | escape }}"
+    data-i18n-hour24="{{ 'booking.hour_24' | t | escape }}"
+    style="--sb-accent: {{ block.settings.accent }};"
+    {{ block.shopify_attributes }}
+  >
+    <button type="button" class="sb-trigger" data-sb-open>
+      {{- block.settings.button_label | default: 'Select a time' | escape -}}
+    </button>
+    <p class="sb-summary" data-sb-summary></p>
+
+    <dialog class="sb-modal" aria-labelledby="sb-title-{{ block.id }}" data-sb-dialog>
+      <div class="sb-modal__panel">
+        <header class="sb-modal__head">
+          <div>
+            <h2 class="sb-modal__title" id="sb-title-{{ block.id }}" data-sb-title>
+              {{- product.title | escape -}}
+            </h2>
+            <p class="sb-modal__zone" data-sb-zone></p>
+            {%- if block.settings.description != blank -%}
+              <p class="sb-modal__desc">{{ block.settings.description | escape }}</p>
+            {%- endif -%}
+          </div>
+          <button type="button" class="sb-modal__close" data-sb-close aria-label="{{ 'booking.close' | t | escape }}">
+            &times;
+          </button>
+        </header>
+        <div class="sb-modal__body">
+          <div class="sb-cal" data-sb-calendar></div>
+          <div class="sb-times" data-sb-times></div>
+        </div>
+        <footer class="sb-modal__foot">
+          <p class="sb-modal__status" role="status" aria-live="polite" data-sb-status></p>
+          <button type="button" class="sb-book" data-sb-book disabled>
+            {{- 'booking.book_now' | t -}}
+          </button>
+        </footer>
+      </div>
+    </dialog>
+  </div>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "Book a time",
+  "target": "section",
+  "javascript": "booking.js",
+  "stylesheet": "booking.css",
+  "enabled_on": {
+    "templates": ["product"]
+  },
+  "settings": [
+    {
+      "type": "text",
+      "id": "button_label",
+      "label": "Button label",
+      "default": "Select a time"
+    },
+    {
+      "type": "text",
+      "id": "description",
+      "label": "Popup message",
+      "default": "You'll receive a confirmation email after checkout."
+    },
+    {
+      "type": "select",
+      "id": "week_start",
+      "label": "Week starts on",
+      "options": [
+        { "value": "0", "label": "Sunday" },
+        { "value": "1", "label": "Monday" }
+      ],
+      "default": "0"
+    },
+    {
+      "type": "color",
+      "id": "accent",
+      "label": "Accent colour",
+      "default": "#000000"
+    }
+  ]
+}
+{% endschema %}

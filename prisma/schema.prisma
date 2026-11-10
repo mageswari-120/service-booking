@@ -1,0 +1,224 @@
+// Service Booking — data model
+// All DateTime values are stored in UTC. Slot arithmetic happens in the
+// service's IANA timezone (Service.timezone ?? Shop.timezone) and is
+// converted at the edges. See app/lib/slots/README.md.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Runtime connection. On a pooled host (Supabase/Neon pgbouncer) this is the
+  // pooled port.
+  url       = env("DATABASE_URL")
+  // Migrations need a direct, unpooled connection — pgbouncer in transaction
+  // mode cannot run the DDL + advisory locks `prisma migrate` issues.
+  // With a plain local Postgres, set DIRECT_URL to the same value as DATABASE_URL.
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Shopify session storage (from the app template — do not rename)
+// ---------------------------------------------------------------------------
+
+model Session {
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+// ---------------------------------------------------------------------------
+// Shop
+// ---------------------------------------------------------------------------
+
+model Shop {
+  id             String   @id @default(cuid())
+  domain         String   @unique
+  timezone       String   @default("UTC")
+  planHandle     String?
+  contactEmail   String?
+  installedAt    DateTime @default(now())
+  uninstalledAt  DateTime?
+
+  holdTtlMinutes   Int             @default(15)
+  reminderLeadHours Int            @default(24)
+  freeBookingMode  FreeBookingMode @default(CHECKOUT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  services  Service[]
+  blackouts Blackout[]
+  bookings  Booking[]
+}
+
+enum FreeBookingMode {
+  CHECKOUT
+  DRAFT_ORDER
+}
+
+// ---------------------------------------------------------------------------
+// Service — always backed by a Shopify product variant
+// ---------------------------------------------------------------------------
+
+model Service {
+  id     String @id @default(cuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  shopifyProductId String
+  shopifyVariantId String
+  title            String
+  active           Boolean @default(true)
+
+  // Slot geometry, all in minutes
+  durationMinutes     Int  @default(60)
+  bufferBeforeMinutes Int  @default(0)
+  bufferAfterMinutes  Int  @default(0)
+  slotIntervalMinutes Int? // null => step by durationMinutes
+  leadTimeMinutes     Int  @default(120)
+  maxAdvanceDays      Int  @default(60)
+  capacityPerSlot     Int  @default(1)
+
+  // Overrides Shop.timezone when set
+  timezone String?
+
+  intakeQuestions Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  availabilityRules AvailabilityRule[]
+  blackouts         Blackout[]
+  holds             SlotHold[]
+  bookings          Booking[]
+
+  @@unique([shopId, shopifyVariantId])
+  @@index([shopId, shopifyProductId])
+}
+
+// ---------------------------------------------------------------------------
+// AvailabilityRule — recurring weekly window, in service-local minutes
+// ---------------------------------------------------------------------------
+
+model AvailabilityRule {
+  id        String  @id @default(cuid())
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  dayOfWeek   Int // 0 = Sunday ... 6 = Saturday
+  startMinute Int // minutes from local midnight, inclusive
+  endMinute   Int // minutes from local midnight, exclusive
+
+  createdAt DateTime @default(now())
+
+  @@index([serviceId, dayOfWeek])
+}
+
+// ---------------------------------------------------------------------------
+// Blackout — shop-wide when serviceId is null
+// ---------------------------------------------------------------------------
+
+model Blackout {
+  id     String @id @default(cuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  serviceId String?
+  service   Service? @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  startsAt DateTime
+  endsAt   DateTime
+  reason   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([shopId, startsAt, endsAt])
+  @@index([serviceId, startsAt, endsAt])
+}
+
+// ---------------------------------------------------------------------------
+// SlotHold — soft reservation taken at add-to-cart, TTL'd
+// ---------------------------------------------------------------------------
+
+model SlotHold {
+  id        String  @id @default(cuid())
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  startsAt   DateTime
+  token      String    @unique
+  cartToken  String?
+  expiresAt  DateTime
+  consumedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  // Counting live holds filters on consumedAt IS NULL AND expiresAt > now()
+  @@index([serviceId, startsAt, expiresAt, consumedAt])
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Booking — created from the orders/create webhook
+// ---------------------------------------------------------------------------
+
+model Booking {
+  id     String @id @default(cuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  shopifyOrderId    String
+  shopifyOrderName  String?
+  shopifyLineItemId String
+
+  startsAt DateTime
+  endsAt   DateTime
+
+  customerName  String?
+  customerEmail String?
+  customerPhone String?
+
+  status        BookingStatus @default(CONFIRMED)
+  conflictNote  String?
+  intakeAnswers Json?
+  holdToken     String?
+
+  confirmationSentAt DateTime?
+  reminderSentAt     DateTime?
+  cancelledAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Makes the orders/create handler idempotent across webhook retries
+  @@unique([shopifyOrderId, shopifyLineItemId])
+  @@index([shopId, startsAt])
+  @@index([serviceId, startsAt, status])
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CONFLICT
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
