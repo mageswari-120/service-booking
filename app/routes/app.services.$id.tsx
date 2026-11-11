@@ -26,9 +26,13 @@ import { getOrCreateShop } from "../lib/shop.server";
 import {
   fetchVariant,
   markVariantAsService,
+  setVariantBookable,
+  setVariantUpsells,
 } from "../lib/services/shopify.server";
+import { parseQuestions, type IntakeQuestion } from "../lib/booking/details";
 import {
   DAY_NAMES,
+  MAX_UPSELLS,
   minutesToHhMm,
   parseServiceInput,
   type ServiceErrors,
@@ -54,6 +58,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       shopTimezone: shop.timezone,
       timezones,
       variantLabel: null as string | null,
+      upsellLabels: {} as Record<string, string>,
       form: emptyForm(),
     };
   }
@@ -68,7 +73,14 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
   // Show the live product name; fall back to the stored title if the product
   // has since been deleted in Shopify.
-  const variant = await fetchVariant(admin, service.shopifyVariantId);
+  const upsellVariantIds = stringList(service.upsellVariantIds);
+  const [variant, ...upsells] = await Promise.all(
+    [service.shopifyVariantId, ...upsellVariantIds].map((id) => fetchVariant(admin, id)),
+  );
+  const upsellLabels: Record<string, string> = {};
+  upsellVariantIds.forEach((id, i) => {
+    upsellLabels[id] = upsells[i]?.displayName ?? "Product not found";
+  });
 
   const form: ServiceFormInput = {
     shopifyProductId: service.shopifyProductId,
@@ -89,6 +101,9 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       start: minutesToHhMm(r.startMinute),
       end: minutesToHhMm(r.endMinute),
     })),
+    intakeQuestions: parseQuestions(service.intakeQuestions),
+    requireSignature: service.requireSignature,
+    upsellVariantIds,
   };
 
   return {
@@ -96,6 +111,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     shopTimezone: shop.timezone,
     timezones,
     variantLabel: variant?.displayName ?? `${service.title} (product not found)`,
+    upsellLabels,
     form,
   };
 };
@@ -115,7 +131,11 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       ? null
       : await db.service.findFirst({
           where: { id: params.id, shopId: shop.id },
-          select: { id: true, _count: { select: { bookings: true } } },
+          select: {
+            id: true,
+            shopifyVariantId: true,
+            _count: { select: { bookings: true } },
+          },
         });
   if (params.id !== "new" && !existing) {
     throw new Response("Service not found", { status: 404 });
@@ -133,6 +153,8 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       } satisfies ActionResult;
     }
     await db.service.delete({ where: { id: existing.id } });
+    // Best effort: a stale flag only costs a proxy check on the storefront.
+    await setVariantBookable(admin, existing.shopifyVariantId, false);
     return redirect("/app");
   }
 
@@ -157,17 +179,29 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 
   const parsed = parseServiceInput(input);
   if (!parsed.ok) return { ok: false, errors: parsed.errors } satisfies ActionResult;
-  const { windows, ...fields } = parsed.data;
+  const { windows, intakeQuestions, upsellVariantIds, ...rest } = parsed.data;
+  const fields = {
+    ...rest,
+    intakeQuestions: intakeQuestions as unknown as Prisma.InputJsonValue,
+    upsellVariantIds,
+  };
 
-  const shopifyError = await markVariantAsService(
-    admin,
-    variant.productId,
-    variant.variantId,
-  );
+  const shopifyError =
+    (await markVariantAsService(admin, variant.productId, variant.variantId)) ??
+    // Lets the theme show "Select a time" without waiting on the app proxy.
+    (await setVariantBookable(admin, variant.variantId, fields.active));
   if (shopifyError) {
     return {
       ok: false,
       errors: { shopifyVariantId: `Shopify rejected the update: ${shopifyError}` },
+    } satisfies ActionResult;
+  }
+  // The popup's add-ons, rendered by the theme block in Liquid.
+  const upsellError = await setVariantUpsells(admin, variant.variantId, upsellVariantIds);
+  if (upsellError) {
+    return {
+      ok: false,
+      errors: { upsellVariantIds: `Shopify rejected the add-ons: ${upsellError}` },
     } satisfies ActionResult;
   }
 
@@ -199,6 +233,12 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     throw error;
   }
 
+  // Moved to another variant: the old one is no longer a service.
+  if (existing && existing.shopifyVariantId !== variant.variantId) {
+    await setVariantBookable(admin, existing.shopifyVariantId, false);
+    await setVariantUpsells(admin, existing.shopifyVariantId, []);
+  }
+
   if (!existing) return redirect(`/app/services/${serviceId}`);
   return { ok: true, variantLabel: variant.displayName } satisfies ActionResult;
 };
@@ -223,6 +263,24 @@ function emptyForm(): ServiceFormInput {
       start: "09:00",
       end: "17:00",
     })),
+    intakeQuestions: [],
+    requireSignature: false,
+    upsellVariantIds: [],
+  };
+}
+
+/** A JSON column expected to hold string[]; anything else reads as empty. */
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
+
+/** A fresh question row for the editor. */
+function newQuestion(): IntakeQuestion {
+  return {
+    id: `q_${Math.random().toString(36).slice(2, 10)}`,
+    type: "text",
+    label: "",
+    required: false,
   };
 }
 
@@ -237,11 +295,13 @@ export default function ServiceEditor() {
 
   const [form, setForm] = useState<ServiceFormInput>(loaderData.form);
   const [variantLabel, setVariantLabel] = useState(loaderData.variantLabel);
+  const [upsellLabels, setUpsellLabels] = useState(loaderData.upsellLabels);
 
   // A save that redirects (create) reloads the loader; resync from it.
   useEffect(() => {
     setForm(loaderData.form);
     setVariantLabel(loaderData.variantLabel);
+    setUpsellLabels(loaderData.upsellLabels);
   }, [loaderData]);
 
   const saving = fetcher.state !== "idle" && fetcher.formData?.get("intent") === "save";
@@ -303,6 +363,38 @@ export default function ServiceEditor() {
     }));
   const removeWindow = (index: number) =>
     setForm((f) => ({ ...f, windows: f.windows.filter((_, i) => i !== index) }));
+
+  const updateQuestion = (index: number, patch: Partial<IntakeQuestion>) =>
+    setForm((f) => ({
+      ...f,
+      intakeQuestions: f.intakeQuestions.map((q, i) => (i === index ? { ...q, ...patch } : q)),
+    }));
+  const addQuestion = () =>
+    setForm((f) => ({ ...f, intakeQuestions: [...f.intakeQuestions, newQuestion()] }));
+  const removeQuestion = (index: number) =>
+    setForm((f) => ({
+      ...f,
+      intakeQuestions: f.intakeQuestions.filter((_, i) => i !== index),
+    }));
+
+  const pickUpsells = async () => {
+    const selection = (await shopify.resourcePicker({
+      type: "variant",
+      action: "select",
+      multiple: MAX_UPSELLS,
+      selectionIds: form.upsellVariantIds.map((id) => ({ id })),
+    })) as { id: string; title?: string; displayName?: string }[] | undefined;
+    if (!selection) return;
+    const picked = selection.filter((v) => v.id !== form.shopifyVariantId);
+    setUpsellLabels((labels) => {
+      const next = { ...labels };
+      for (const v of picked) next[v.id] = v.displayName ?? v.title ?? "Selected variant";
+      return next;
+    });
+    setForm((f) => ({ ...f, upsellVariantIds: picked.map((v) => v.id) }));
+  };
+  const removeUpsell = (id: string) =>
+    setForm((f) => ({ ...f, upsellVariantIds: f.upsellVariantIds.filter((v) => v !== id) }));
 
   const timezoneOptions = useMemo(
     () => [
@@ -506,6 +598,117 @@ export default function ServiceEditor() {
                     </InlineGrid>
                   );
                 })}
+              </BlockStack>
+            </Card>
+
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Booking details
+                </Text>
+                <Text as="p" tone="subdued">
+                  After picking a time, customers answer these before adding the
+                  booking to their cart. Answers appear on the order.
+                </Text>
+                {form.intakeQuestions.map((q, index) => (
+                  <BlockStack key={q.id} gap="200">
+                    <InlineStack gap="200" blockAlign="end" wrap={false}>
+                      <div style={{ minWidth: 130 }}>
+                        <Select
+                          label="Type"
+                          options={[
+                            { label: "Text answer", value: "text" },
+                            { label: "Checkbox", value: "checkbox" },
+                          ]}
+                          value={q.type}
+                          onChange={(type) =>
+                            updateQuestion(index, { type: type as IntakeQuestion["type"] })
+                          }
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label={q.type === "checkbox" ? "Checkbox label" : "Question"}
+                          value={q.label}
+                          onChange={(label) => updateQuestion(index, { label })}
+                          placeholder={
+                            q.type === "checkbox"
+                              ? "Do you accept the terms and conditions?"
+                              : "What are your goals for this visit?"
+                          }
+                          autoComplete="off"
+                        />
+                      </div>
+                      <Button
+                        icon={DeleteIcon}
+                        variant="tertiary"
+                        accessibilityLabel="Remove question"
+                        onClick={() => removeQuestion(index)}
+                      />
+                    </InlineStack>
+                    <TextField
+                      label="Help text"
+                      value={q.help ?? ""}
+                      onChange={(help) => updateQuestion(index, { help })}
+                      placeholder="Optional, shown under the question"
+                      autoComplete="off"
+                    />
+                    <Checkbox
+                      label={q.type === "checkbox" ? "Must be ticked" : "Required"}
+                      checked={q.required}
+                      onChange={(required) => updateQuestion(index, { required })}
+                    />
+                    {errors[`intakeQuestions.${index}`] ? (
+                      <InlineError
+                        message={errors[`intakeQuestions.${index}`]}
+                        fieldID={`intakeQuestions.${index}`}
+                      />
+                    ) : null}
+                  </BlockStack>
+                ))}
+                {errors.intakeQuestions ? (
+                  <InlineError message={errors.intakeQuestions} fieldID="intakeQuestions" />
+                ) : null}
+                <div>
+                  <Button onClick={addQuestion}>Add question</Button>
+                </div>
+                <Checkbox
+                  label="Require a signature"
+                  helpText="Customers draw their signature to confirm your terms."
+                  checked={form.requireSignature}
+                  onChange={set("requireSignature")}
+                />
+              </BlockStack>
+            </Card>
+
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Add-on products
+                </Text>
+                <Text as="p" tone="subdued">
+                  Offered as “Add these to your order” in the booking popup. Up
+                  to {MAX_UPSELLS}.
+                </Text>
+                {form.upsellVariantIds.map((id) => (
+                  <InlineStack key={id} gap="200" blockAlign="center" align="space-between">
+                    <Text as="span">{upsellLabels[id] ?? "Selected variant"}</Text>
+                    <Button
+                      icon={DeleteIcon}
+                      variant="tertiary"
+                      accessibilityLabel="Remove add-on"
+                      onClick={() => removeUpsell(id)}
+                    />
+                  </InlineStack>
+                ))}
+                {errors.upsellVariantIds ? (
+                  <InlineError message={errors.upsellVariantIds} fieldID="upsellVariantIds" />
+                ) : null}
+                <div>
+                  <Button onClick={pickUpsells}>
+                    {form.upsellVariantIds.length ? "Change products" : "Choose products"}
+                  </Button>
+                </div>
               </BlockStack>
             </Card>
           </BlockStack>

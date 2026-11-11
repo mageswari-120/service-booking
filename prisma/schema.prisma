@@ -98,7 +98,13 @@ model Service {
   // Overrides Shop.timezone when set
   timezone String?
 
-  intakeQuestions Json?
+  // [{ id, type: "text" | "checkbox", label, help?, required }] — asked in the
+  // booking popup's second step. See app/lib/booking/details.ts.
+  intakeQuestions  Json?
+  requireSignature Boolean @default(false)
+  // Variant GIDs offered as "Add these to your order" in the popup. Mirrored to
+  // the service variant's service_booking.upsells metafield for the theme.
+  upsellVariantIds Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -167,6 +173,12 @@ model SlotHold {
   expiresAt  DateTime
   consumedAt DateTime?
 
+  // Seats taken (people attending); capacity is summed, not counted.
+  seats         Int    @default(1)
+  // Popup details, copied onto the Booking by the orders handler.
+  intakeAnswers Json?
+  signaturePng  Bytes?
+
   createdAt DateTime @default(now())
 
   // Counting live holds filters on consumedAt IS NULL AND expiresAt > now()
@@ -201,6 +213,8 @@ model Booking {
   conflictNote  String?
   intakeAnswers Json?
   holdToken     String?
+  seats         Int     @default(1)
+  signaturePng  Bytes?
 
   confirmationSentAt DateTime?
   reminderSentAt     DateTime?

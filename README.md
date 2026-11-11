@@ -128,6 +128,8 @@ When you're ready to set up your app in production, you can follow [our deployme
 
 When you reach the step for [setting up environment variables](https://shopify.dev/docs/apps/deployment/web#set-env-vars), you also need to set the variable `NODE_ENV=production`.
 
+This app also needs `DATABASE_URL`, `DIRECT_URL` (Postgres) and `BOOKING_HOLD_SECRET` — at least 32 characters, e.g. `openssl rand -hex 32`. Without the secret, every time-slot hold fails and customers see "Something went wrong".
+
 ### Hosting on Vercel
 
 Using the Vercel Preset is recommended when hosting your Shopify Remix app on Vercel. You'll also want to ensure imports that would normally come from `@remix-run/node` are imported from `@vercel/remix` instead. Learn more about hosting Remix apps on Vercel [here](https://vercel.com/docs/frameworks/remix).

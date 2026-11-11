@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 
 import db from "../../db.server";
 import { resolveTimezone } from "../shop.server";
+import { parseQuestions, type IntakeQuestion } from "./details";
 import type {
   ComputeSlotsParams,
   Interval,
@@ -20,6 +21,9 @@ export interface BookableService {
   holdTtlMinutes: number;
   geometry: ServiceGeometry;
   windows: WeeklyWindow[];
+  /** Asked in the popup's second step. */
+  questions: IntakeQuestion[];
+  requireSignature: boolean;
 }
 
 /**
@@ -66,6 +70,8 @@ export async function loadBookableService(
       startMinute: r.startMinute,
       endMinute: r.endMinute,
     })),
+    questions: parseQuestions(service.intakeQuestions),
+    requireSignature: service.requireSignature,
   };
 }
 
@@ -105,7 +111,8 @@ export async function buildSlotParams(
         expiresAt: { gt: now },
         startsAt: { gte: rangeStart, lt: rangeEnd },
       },
-      _count: { _all: true },
+      // Seats, not rows: one hold or booking can be for several people.
+      _sum: { seats: true },
     }),
     client.booking.groupBy({
       by: ["startsAt"],
@@ -114,14 +121,14 @@ export async function buildSlotParams(
         status: "CONFIRMED",
         startsAt: { gte: rangeStart, lt: rangeEnd },
       },
-      _count: { _all: true },
+      _sum: { seats: true },
     }),
   ]);
 
   const blackouts: Interval[] = blackoutRows;
   const usage: SlotUsage[] = [
-    ...holdRows.map((r) => ({ startsAt: r.startsAt, count: r._count._all })),
-    ...bookingRows.map((r) => ({ startsAt: r.startsAt, count: r._count._all })),
+    ...holdRows.map((r) => ({ startsAt: r.startsAt, count: r._sum.seats ?? 0 })),
+    ...bookingRows.map((r) => ({ startsAt: r.startsAt, count: r._sum.seats ?? 0 })),
   ];
 
   return {

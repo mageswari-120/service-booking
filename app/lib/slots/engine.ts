@@ -183,19 +183,25 @@ export function computeSlots({
 }
 
 /**
- * Local calendar dates ("YYYY-MM-DD", service timezone) that have at least one
- * bookable slot. Backs the month view, which only needs to know which days to
- * render as selectable.
+ * Bookable slots grouped by local calendar date ("YYYY-MM-DD", service
+ * timezone), each day in time order. Only days with at least one slot appear.
+ * Backs the month view, which ships a month's times in one response so the
+ * storefront can switch days without another request.
  */
-export function bookableDays(params: ComputeSlotsParams): string[] {
+export function slotsByDay(params: ComputeSlotsParams): Record<string, Slot[]> {
   const zone = params.service.timezone;
-  const days = new Set<string>();
+  const byDay: Record<string, Slot[]> = {};
+  // computeSlots returns slots sorted by start, so each day stays in order.
   for (const slot of computeSlots(params)) {
-    days.add(
-      DateTime.fromJSDate(slot.startsAt, { zone }).toFormat("yyyy-MM-dd"),
-    );
+    const day = DateTime.fromJSDate(slot.startsAt, { zone }).toFormat("yyyy-MM-dd");
+    (byDay[day] ??= []).push(slot);
   }
-  return [...days].sort();
+  return byDay;
+}
+
+/** Local calendar dates ("YYYY-MM-DD", service timezone) with at least one slot. */
+export function bookableDays(params: ComputeSlotsParams): string[] {
+  return Object.keys(slotsByDay(params)).sort();
 }
 
 /**

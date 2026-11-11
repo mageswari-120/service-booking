@@ -18,16 +18,17 @@
   display: none !important;
 }
 
-/* With a bookable service selected, our button replaces the theme's buy
-   controls. Scoped to the product section that holds the block. */
-.sb-has-booking form[action*="/cart/add"] [type="submit"],
-.sb-has-booking [name="add"],
+/* With a bookable service selected the theme's add-to-cart is relabelled
+   "Select a time" (JS) and opens the popup; "Buy it now" stays hidden. Only
+   themes whose button can't be found (`sb-own-btn`) hide it and get our own
+   button instead. Scoped to the product section that holds the block. */
+.sb-has-booking.sb-own-btn form[action*="/cart/add"] [type="submit"],
+.sb-has-booking.sb-own-btn [name="add"],
 .sb-has-booking .shopify-payment-button {
   display: none !important;
 }
 
-.sb-trigger,
-.sb-book {
+.sb-trigger {
   width: 100%;
   min-height: 3rem;
   padding: 0.75rem 1.25rem;
@@ -40,23 +41,8 @@
   cursor: pointer;
 }
 
-.sb-book {
-  width: auto;
-  min-width: 10rem;
-}
-
-.sb-book:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.sb-summary:empty {
+.sb-trigger[hidden] {
   display: none;
-}
-
-.sb-summary {
-  margin: 0.5rem 0 0;
-  font-size: 0.95em;
 }
 
 /* --- Dialog ------------------------------------------------------------ */
@@ -133,11 +119,16 @@
   overflow-y: auto;
 }
 
+.sb-modal__body[hidden],
+.sb-details[hidden],
+.sb-add[hidden] {
+  display: none;
+}
+
 .sb-modal__foot {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.75rem;
   padding: 1rem 1.5rem;
   border-top: 1px solid var(--sb-border);
 }
@@ -145,6 +136,243 @@
 .sb-modal__status {
   margin: 0;
   font-size: 0.9rem;
+}
+
+.sb-modal__status:empty {
+  display: none;
+}
+
+.sb-add {
+  width: 100%;
+  min-height: 3.25rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: var(--sb-accent);
+  color: var(--sb-on-accent);
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sb-add:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+/* --- Step 2: details --------------------------------------------------- */
+
+.sb-details {
+  display: grid;
+  gap: 1.25rem;
+  padding: 1.25rem 1.5rem;
+  overflow-y: auto;
+}
+
+.sb-back {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.9rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.sb-eyebrow {
+  margin: 0 0 -0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--sb-muted);
+}
+
+.sb-pick {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--sb-border);
+  border-radius: 0.5rem;
+  font-weight: 600;
+}
+
+.sb-field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.sb-field .sb-muted {
+  margin: -0.2rem 0 0;
+  font-size: 0.85rem;
+}
+
+.sb-field__label {
+  margin: 0;
+  font-weight: 600;
+}
+
+.sb-req {
+  color: #b42318;
+}
+
+.sb-field__error {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #b42318;
+}
+
+.sb-field__error:empty {
+  display: none;
+}
+
+.sb-details input[type="text"] {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--sb-border);
+  border-radius: 0.5rem;
+  background: var(--sb-bg);
+  color: inherit;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.sb-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sb-check input {
+  width: 1.2rem;
+  height: 1.2rem;
+  margin: 0.15rem 0 0;
+  accent-color: var(--sb-accent);
+}
+
+.sb-stepper {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  border: 1px solid var(--sb-border);
+  border-radius: 0.5rem;
+}
+
+.sb-stepper button {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.sb-stepper button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.sb-stepper output {
+  min-width: 2.5rem;
+  text-align: center;
+  font-weight: 600;
+}
+
+.sb-sign {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 32rem;
+  padding: 0.75rem;
+  border: 1px solid var(--sb-border);
+  border-radius: 0.5rem;
+}
+
+.sb-sign__pad {
+  width: 100%;
+  height: 10rem;
+  border-radius: 0.4rem;
+  background: var(--sb-soft);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.sb-sign__clear {
+  justify-self: end;
+  padding: 0.35rem 0.75rem;
+  border: 0;
+  border-radius: 0.4rem;
+  background: var(--sb-soft);
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.sb-upsells {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: -0.75rem;
+}
+
+.sb-upsell {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--sb-border);
+  border-radius: 0.6rem;
+}
+
+.sb-upsell__img {
+  grid-row: span 2;
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 0.4rem;
+  object-fit: cover;
+}
+
+.sb-upsell__info {
+  display: grid;
+}
+
+.sb-upsell__info small {
+  color: var(--sb-muted);
+}
+
+.sb-upsell__price {
+  font-weight: 600;
+  text-align: right;
+}
+
+.sb-upsell__buy {
+  grid-column: 2 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.sb-upsell__add {
+  min-width: 5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--sb-accent);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sb-upsell__add[aria-pressed="true"] {
+  background: var(--sb-accent);
+  color: var(--sb-on-accent);
 }
 
 .sb-modal__status.sb-error {
@@ -311,6 +539,7 @@
 
   .sb-modal__head,
   .sb-modal__body,
+  .sb-details,
   .sb-modal__foot {
     padding-left: 1rem;
     padding-right: 1rem;
@@ -322,12 +551,7 @@
     gap: 1.5rem;
   }
 
-  .sb-modal__foot {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .sb-book {
-    width: 100%;
+  .sb-details {
+    flex: 1;
   }
 }

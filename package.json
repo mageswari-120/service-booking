@@ -4,7 +4,7 @@
   "scripts": {
     "build": "remix vite:build",
     "dev": "npm run build:widget && shopify app dev",
-    "build:widget": "esbuild storefront/booking-widget.js --minify --target=es2017 --outfile=extensions/booking-widget/assets/booking.js",
+    "build:widget": "esbuild storefront/booking-widget.js --minify --target=es2017 --outfile=extensions/booking-widget/assets/booking.js && esbuild storefront/booking-step2.js --minify --target=es2017 --outfile=extensions/booking-widget/assets/booking-step2.js",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
     "deploy": "npm run build:widget && shopify app deploy",
@@ -38,26 +38,27 @@
     "@shopify/shopify-app-remix": "^6.0.4",
     "@shopify/shopify-app-session-storage-prisma": "^11.0.3",
     "isbot": "^5.1.0",
+    "luxon": "^3.5.0",
     "prisma": "^6.19.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "vite-tsconfig-paths": "^5.0.1",
-    "luxon": "^3.5.0"
+    "vite-tsconfig-paths": "^5.0.1"
   },
   "devDependencies": {
     "@remix-run/eslint-config": "^2.16.1",
     "@remix-run/route-config": "^2.16.1",
     "@shopify/api-codegen-preset": "^1.1.1",
     "@types/eslint": "^9.6.1",
+    "@types/luxon": "^3.4.2",
     "@types/node": "^22.2.0",
     "@types/react": "^18.2.31",
     "@types/react-dom": "^18.2.14",
+    "esbuild": "^0.28.2",
     "eslint": "^8.42.0",
     "eslint-config-prettier": "^10.0.1",
     "prettier": "^3.2.4",
     "typescript": "^5.2.2",
     "vite": "^6.2.2",
-    "@types/luxon": "^3.4.2",
     "vitest": "^2.1.8"
   },
   "trustedDependencies": [

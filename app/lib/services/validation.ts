@@ -7,6 +7,16 @@
  * message under its own input.
  */
 
+import {
+  MAX_HELP,
+  MAX_LABEL,
+  MAX_QUESTIONS,
+  type IntakeQuestion,
+} from "../booking/details";
+
+/** Most add-on products offered in the booking popup. */
+export const MAX_UPSELLS = 5;
+
 export interface WindowInput {
   dayOfWeek: number;
   /** "HH:MM", 24-hour, service-local. */
@@ -31,6 +41,11 @@ export interface ServiceFormInput {
   /** Empty string or null => use the shop's timezone. */
   timezone: string | null;
   windows: WindowInput[];
+  /** Asked in the booking popup's second step. */
+  intakeQuestions: IntakeQuestion[];
+  requireSignature: boolean;
+  /** Variant GIDs offered as add-ons in the popup. */
+  upsellVariantIds: string[];
 }
 
 export interface ServiceData {
@@ -47,9 +62,15 @@ export interface ServiceData {
   capacityPerSlot: number;
   timezone: string | null;
   windows: { dayOfWeek: number; startMinute: number; endMinute: number }[];
+  intakeQuestions: IntakeQuestion[];
+  requireSignature: boolean;
+  upsellVariantIds: string[];
 }
 
-/** Field name => message. Window errors use the key `windows.<index>`. */
+/**
+ * Field name => message. Row errors use `windows.<index>` and
+ * `intakeQuestions.<index>`.
+ */
 export type ServiceErrors = Record<string, string>;
 
 export type ParseResult =
@@ -164,6 +185,47 @@ export function parseServiceInput(input: ServiceFormInput): ParseResult {
     }
   }
 
+  const intakeQuestions: IntakeQuestion[] = [];
+  const questionIds = new Set<string>();
+  const rawQuestions = input.intakeQuestions ?? [];
+  if (rawQuestions.length > MAX_QUESTIONS) {
+    errors.intakeQuestions = `Up to ${MAX_QUESTIONS} questions.`;
+  }
+  rawQuestions.slice(0, MAX_QUESTIONS).forEach((q, index) => {
+    const key = `intakeQuestions.${index}`;
+    const label = (q.label ?? "").trim();
+    const help = (q.help ?? "").trim();
+    if (!/^[A-Za-z0-9_-]{1,40}$/.test(q.id ?? "") || questionIds.has(q.id)) {
+      errors[key] = "Invalid question.";
+    } else if (q.type !== "text" && q.type !== "checkbox") {
+      errors[key] = "Choose a question type.";
+    } else if (!label) {
+      errors[key] = "Question text is required.";
+    } else if (label.length > MAX_LABEL) {
+      errors[key] = `Question text must be under ${MAX_LABEL} characters.`;
+    } else if (help.length > MAX_HELP) {
+      errors[key] = `Help text must be under ${MAX_HELP} characters.`;
+    } else {
+      questionIds.add(q.id);
+      intakeQuestions.push({
+        id: q.id,
+        type: q.type,
+        label,
+        ...(help ? { help } : {}),
+        required: q.required === true,
+      });
+    }
+  });
+
+  const upsellVariantIds = [...new Set(input.upsellVariantIds ?? [])];
+  if (upsellVariantIds.length > MAX_UPSELLS) {
+    errors.upsellVariantIds = `Up to ${MAX_UPSELLS} add-on products.`;
+  } else if (upsellVariantIds.some((id) => !VARIANT_GID.test(id))) {
+    errors.upsellVariantIds = "Choose add-on products from this store.";
+  } else if (upsellVariantIds.includes(input.shopifyVariantId)) {
+    errors.upsellVariantIds = "A service can't be its own add-on.";
+  }
+
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   return {
@@ -182,6 +244,9 @@ export function parseServiceInput(input: ServiceFormInput): ParseResult {
       capacityPerSlot,
       timezone,
       windows,
+      intakeQuestions,
+      requireSignature: Boolean(input.requireSignature),
+      upsellVariantIds,
     },
   };
 }

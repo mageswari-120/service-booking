@@ -21,6 +21,9 @@ function valid(overrides: Partial<ServiceFormInput> = {}): ServiceFormInput {
     capacityPerSlot: "1",
     timezone: "",
     windows: [{ dayOfWeek: 1, start: "09:00", end: "17:00" }],
+    intakeQuestions: [],
+    requireSignature: false,
+    upsellVariantIds: [],
     ...overrides,
   };
 }
@@ -126,6 +129,69 @@ describe("parseServiceInput", () => {
       }),
     );
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("parseServiceInput — booking popup details", () => {
+  it("normalises questions, signature and add-ons", () => {
+    const result = parseServiceInput(
+      valid({
+        intakeQuestions: [
+          { id: "q_1", type: "text", label: "  Goals ", help: "  ", required: false },
+          { id: "q_2", type: "checkbox", label: "Accept terms", help: "See policy", required: true },
+        ],
+        requireSignature: true,
+        upsellVariantIds: [
+          "gid://shopify/ProductVariant/7",
+          "gid://shopify/ProductVariant/7",
+        ],
+      }),
+    );
+    expect(result).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        intakeQuestions: [
+          { id: "q_1", type: "text", label: "Goals", required: false },
+          { id: "q_2", type: "checkbox", label: "Accept terms", help: "See policy", required: true },
+        ],
+        requireSignature: true,
+        upsellVariantIds: ["gid://shopify/ProductVariant/7"],
+      }),
+    });
+  });
+
+  it("flags bad question rows by index", () => {
+    const errors = errorsOf(
+      valid({
+        intakeQuestions: [
+          { id: "q_1", type: "text", label: "Ok", required: false },
+          { id: "q_2", type: "text", label: "   ", required: false },
+          { id: "q_1", type: "text", label: "Duplicate id", required: false },
+          { id: "q_4", type: "radio" as "text", label: "Bad type", required: false },
+        ],
+      }),
+    );
+    expect(Object.keys(errors).sort()).toEqual([
+      "intakeQuestions.1",
+      "intakeQuestions.2",
+      "intakeQuestions.3",
+    ]);
+  });
+
+  it("validates add-on products", () => {
+    expect(errorsOf(valid({ upsellVariantIds: ["gid://shopify/Product/1"] }))).toHaveProperty(
+      "upsellVariantIds",
+    );
+    expect(
+      errorsOf(valid({ upsellVariantIds: ["gid://shopify/ProductVariant/2"] })),
+    ).toHaveProperty("upsellVariantIds");
+    expect(
+      errorsOf(
+        valid({
+          upsellVariantIds: [1, 2, 3, 4, 5, 6].map((n) => `gid://shopify/ProductVariant/${n + 10}`),
+        }),
+      ),
+    ).toHaveProperty("upsellVariantIds");
   });
 });
 

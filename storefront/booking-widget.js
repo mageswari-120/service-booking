@@ -1,23 +1,25 @@
 /*
  * SOURCE for extensions/booking-widget/assets/booking.js — edit this file, not
  * the asset. `npm run build:widget` (also run by `npm run dev` and `deploy`)
- * minifies it there: app block scripts must stay under 10 KB.
+ * minifies it there: app block scripts must stay under 10 KB, which is why the
+ * popup's second step lives in booking-step2.js and is loaded on demand.
  *
- * Service Booking — "Select a time" button + popup.
+ * Service Booking — "Select a time" on the theme's button + popup.
  *
- * Flow: ask the app proxy whether the selected variant is a bookable service →
- * if so, hide the theme's buy buttons and show our button → popup with a month
- * calendar and the chosen day's times → clicking a time reserves it (a short
- * hold) → "Book now" adds the line with the booking as line item properties
- * and goes straight to checkout.
+ * Flow: the theme's add-to-cart is relabelled "Select a time" for bookable
+ * services (known at render from a variant metafield, confirmed through the
+ * app proxy) → popup step 1: month calendar + the chosen day's times (a whole
+ * month comes in one /availability call) → picking a time opens step 2
+ * (booking-step2.js): people, questions, signature, add-ons → its "Add to
+ * cart" holds the seats and adds everything to the cart.
  *
- * The order webhook re-checks everything server-side; this file is UX, not the
- * security boundary.
+ * The server re-checks everything; this file is UX, not the security boundary.
  */
 (function () {
   "use strict";
 
   var HOUR_PREF = "sb-hour-cycle";
+  var step2Loading = null; // one <script> per page, shared by every block
 
   function init(root) {
     if (root.__sb) return;
@@ -29,11 +31,15 @@
     var proxy = root.dataset.proxy;
     var weekStart = Number(root.dataset.weekStart) || 0;
     var dialog = $("[data-sb-dialog]");
+    var step1El = $("[data-sb-step1]");
+    var detailsEl = $("[data-sb-details]");
+    var addBtn = $("[data-sb-add]");
     var calEl = $("[data-sb-calendar]");
     var timesEl = $("[data-sb-times]");
     var statusEl = $("[data-sb-status]");
-    var bookBtn = $("[data-sb-book]");
-    var summaryEl = $("[data-sb-summary]");
+    var triggerBtn = $("[data-sb-open]");
+    // Variants the app flagged as services (Liquid metafield), known at render.
+    var flagged = (root.dataset.bookableVariants || "").split(",");
     var locale = document.documentElement.lang || undefined;
     var form = findProductForm(root);
     var section = (form && form.closest(".shopify-section")) || root.closest(".shopify-section");
@@ -46,11 +52,14 @@
       firstMonth: null,
       lastMonth: null,
       days: [],
+      byDay: {}, // "YYYY-MM-DD" -> [{ start, remaining }] for the loaded month
       date: null,
       slots: null,
       capacity: 1,
-      hold: null, // { token, start, expiresAt }
-      busy: false,
+      duration: 0,
+      questions: [],
+      signature: false,
+      pick: null, // the slot chosen in step 1
       seq: 0,
       h24: readHourPref(),
     };
@@ -110,7 +119,7 @@
     // Theme integration
     // ---------------------------------------------------------------------
 
-    /** Show our button and hide the theme's buy controls, or undo both. */
+    /** Relabel the theme's button and hide its other buy controls, or undo both. */
     function applyBookable(on) {
       state.bookable = on;
       root.hidden = !on;
@@ -121,10 +130,52 @@
         var wrap = qty && (qty.closest(".product-form__quantity, quantity-input, .quantity") || qty.parentElement);
         if (wrap) wrap.classList.toggle("sb-hide", on);
       }
+      syncLabel();
     }
 
-    // Fallback for themes whose buy buttons the CSS doesn't catch: a click on
-    // the theme's add-to-cart opens our popup instead.
+    /** The theme's add-to-cart. Re-queried: themes re-render it on variant change. */
+    function themeBtn() {
+      return form && (form.querySelector('[name="add"], [type="submit"]') ||
+        document.querySelector('[form="' + form.id + '"][name="add"], [form="' + form.id + '"][type="submit"]'));
+    }
+
+    /**
+     * Relabel straight away when the variant is flagged as a service; either
+     * way, ask the app in the background. The flag only makes the relabel
+     * instant — services saved before it existed (or whose flag write failed)
+     * are still found by the proxy, and a stale flag is backed out.
+     */
+    function start() {
+      applyBookable(flagged.indexOf(String(state.variantId)) >= 0);
+      loadMonth(null, false);
+    }
+
+    /**
+     * The theme's add-to-cart reads "Select a time" for a bookable service and
+     * its own label otherwise. Themes without a findable button get our own
+     * trigger instead (`sb-own-btn`).
+     */
+    function syncLabel() {
+      var btn = themeBtn();
+      if (section) section.classList.toggle("sb-own-btn", !btn);
+      triggerBtn.hidden = !!btn;
+      if (!btn) return;
+      var walker = document.createTreeWalker(btn, NodeFilter.SHOW_TEXT, {
+        acceptNode: function (n) {
+          return /\S/.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+        },
+      });
+      var node = walker.nextNode();
+      if (!node) return;
+      var ours = root.dataset.label;
+      // Remember the theme's own text (it may change with the variant, e.g. "Sold out").
+      if (node.nodeValue.trim() !== ours) btn.__sbLabel = node.nodeValue;
+      var want = state.bookable ? ours : btn.__sbLabel;
+      if (want && node.nodeValue !== want && node.nodeValue.trim() !== want) node.nodeValue = want;
+    }
+
+    // For a bookable service the theme's add-to-cart opens our popup instead:
+    // the booking (with its details) is added to the cart from there.
     function guard(event) {
       if (!form || !state.bookable) return;
       var target = event.target;
@@ -147,20 +198,96 @@
 
     function open() {
       if (!dialog.open) dialog.showModal();
-      if (!state.month) loadMonth(null, true);
+      showStep1();
+      loadStep2(); // prefetch: picking a time should feel instant
+      if (!state.month) {
+        // Background load not back yet (or failed): load now, picking a day.
+        setStatus(t("Loading"));
+        loadMonth(null, true);
+      } else {
+        // Show the prefetched dates and times at once, then refresh them
+        // quietly so the popup doesn't offer times taken since page load.
+        if (!state.date && state.days.length) selectDate(state.days[0]);
+        loadMonth(state.month, false);
+      }
     }
 
     function close() {
       dialog.close();
     }
 
-    $("[data-sb-open]").addEventListener("click", open);
+    triggerBtn.addEventListener("click", open);
     $("[data-sb-close]").addEventListener("click", close);
     // A click on the backdrop lands on the <dialog> itself.
     dialog.addEventListener("click", function (e) {
       if (e.target === dialog) close();
     });
-    bookBtn.addEventListener("click", book);
+
+    function showStep1() {
+      step1El.hidden = false;
+      detailsEl.hidden = true;
+      addBtn.hidden = true;
+      if (state.slots) setStatus(t("PickTime"));
+    }
+
+    /** Step 2: people, questions, signature, add-ons (booking-step2.js). */
+    function showDetails(slot) {
+      state.pick = slot;
+      renderTimes();
+      setStatus(t("Loading"));
+      loadStep2().then(
+        function () {
+          if (state.pick !== slot || !dialog.open) return;
+          setStatus("");
+          step1El.hidden = true;
+          detailsEl.hidden = false;
+          addBtn.hidden = false;
+          window.__sbStep2({
+            root: root,
+            state: state,
+            el: el,
+            t: t,
+            api: api,
+            fmt: fmt,
+            formatTime: formatTime,
+            setStatus: setStatus,
+            detailsEl: detailsEl,
+            addBtn: addBtn,
+            upsells: $('template[data-sb-upsells][data-for="' + state.variantId + '"]'),
+            back: showStep1,
+            // The time filled while the customer was filling in step 2.
+            taken: function () {
+              state.pick = null;
+              showStep1();
+              loadMonth(state.month).then(function () {
+                setStatus(t("Taken"), true);
+              });
+            },
+          });
+          detailsEl.scrollTop = 0;
+        },
+        function () {
+          setStatus(t("Error"), true);
+        },
+      );
+    }
+
+    function loadStep2() {
+      if (!step2Loading) {
+        step2Loading = new Promise(function (resolve, reject) {
+          var s = document.createElement("script");
+          s.src = root.dataset.step2Src;
+          s.async = true;
+          s.onload = resolve;
+          s.onerror = function () {
+            step2Loading = null; // allow a retry
+            reject();
+          };
+          document.head.appendChild(s);
+        });
+      }
+      return step2Loading;
+    }
 
     function monthDate(month) {
       var p = month.split("-");
@@ -237,7 +364,6 @@
             state.h24 = h24;
             writeHourPref(h24);
             renderTimes();
-            renderSummary();
           },
         });
       };
@@ -262,9 +388,9 @@
         list.appendChild(el("button", {
           type: "button",
           class: "sb-time",
-          "aria-pressed": String(!!state.hold && state.hold.start === slot.start),
-          onclick: function (e) {
-            hold(slot.start, e.currentTarget);
+          "aria-pressed": String(!!state.pick && state.pick.start === slot.start),
+          onclick: function () {
+            showDetails(slot);
           },
         }, [
           el("span", { text: formatTime(slot.start) }),
@@ -274,14 +400,6 @@
         ]));
       });
       timesEl.appendChild(list);
-    }
-
-    function renderSummary() {
-      var h = state.hold;
-      var text = h ? fmt(h.start, { weekday: "short", month: "short", day: "numeric" }) + " · " + formatTime(h.start) : "";
-      summaryEl.textContent = text;
-      bookBtn.disabled = !h;
-      if (h) setStatus(text + " — " + t("Held", { time: formatTime(h.expiresAt) }));
     }
 
     // ---------------------------------------------------------------------
@@ -307,6 +425,11 @@
           state.firstMonth = d.firstMonth;
           state.lastMonth = d.lastMonth;
           state.days = d.days;
+          state.byDay = d.slots || {};
+          state.capacity = d.capacity || 1;
+          state.duration = d.duration || 0;
+          state.questions = d.questions || [];
+          state.signature = !!d.signature;
           applyBookable(true);
           $("[data-sb-zone]").textContent = t("Timezone", { zone: d.timezone });
           if (state.date && state.date.slice(0, 7) !== d.month) state.date = null;
@@ -314,9 +437,11 @@
           renderCalendar();
           if (state.date) return loadSlots();
           renderTimes();
+          if (step1El.hidden === false) setStatus("");
         })
         .catch(function () {
-          if (seq === state.seq) setStatus(t("Error"), true);
+          if (seq !== state.seq) return;
+          setStatus(t("Error"), true);
         });
     }
 
@@ -326,90 +451,11 @@
       loadSlots();
     }
 
+    /** The chosen day's times come with the month (`/availability`): no request. */
     function loadSlots() {
-      var date = state.date;
-      state.slots = null;
+      state.slots = state.byDay[state.date] || [];
       renderTimes();
-      return api("/slots", { variant: state.variantId, date: date })
-        .then(function (res) {
-          if (state.date !== date) return;
-          if (res.status !== 200) throw 0;
-          state.slots = res.data.slots;
-          state.capacity = res.data.capacity || 1;
-          renderTimes();
-          if (!state.hold) setStatus(t("PickTime"));
-        })
-        .catch(function () {
-          setStatus(t("Error"), true);
-        });
-    }
-
-    function hold(start, button) {
-      if (state.busy) return;
-      state.busy = true;
-      button.disabled = true;
-      api("/hold", null, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ variant: state.variantId, start: start, release: state.hold && state.hold.token }),
-      })
-        .then(function (res) {
-          if (res.status === 409) {
-            state.hold = null;
-            renderSummary();
-            // Reload so the taken time disappears, then explain why.
-            return loadMonth(state.month).then(function () {
-              setStatus(t("Taken"), true);
-            });
-          }
-          if (res.status !== 200) throw 0;
-          state.hold = res.data;
-          renderTimes();
-          renderSummary();
-        })
-        .catch(function () {
-          setStatus(t("Error"), true);
-        })
-        .then(function () {
-          state.busy = false;
-          button.disabled = false;
-        });
-    }
-
-    function book() {
-      var h = state.hold;
-      if (!h || state.busy) return;
-      state.busy = true;
-      bookBtn.disabled = true;
-      var root_ = (window.Shopify && Shopify.routes && Shopify.routes.root) || "/";
-      fetch(root_ + "cart/add.js", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({
-          items: [{
-            id: Number(state.variantId),
-            quantity: 1,
-            properties: {
-              Appointment: fmt(h.start, {
-                weekday: "short", day: "numeric", month: "short", year: "numeric",
-                hour: "numeric", minute: "2-digit", timeZoneName: "short",
-                hourCycle: state.h24 ? "h23" : "h12",
-              }),
-              _booking_start: h.start,
-              _booking_hold: h.token,
-            },
-          }],
-        }),
-      })
-        .then(function (res) {
-          if (!res.ok) throw 0;
-          window.location.href = root_ + "checkout";
-        })
-        .catch(function () {
-          state.busy = false;
-          bookBtn.disabled = false;
-          setStatus(t("Error"), true);
-        });
+      if (!step1El.hidden) setStatus(t("PickTime"));
     }
 
     // ---------------------------------------------------------------------
@@ -421,13 +467,13 @@
       var input = form && (form.querySelector('[name="id"]') ||
         document.querySelector('[name="id"][form="' + form.id + '"]'));
       var id = input && input.value ? String(input.value) : state.variantId;
-      if (id === state.variantId) return;
+      if (id === state.variantId) return syncLabel();
       state.variantId = id;
-      state.date = state.month = state.slots = state.hold = null;
+      state.date = state.month = state.slots = state.pick = null;
+      state.seq++; 
       if (dialog.open) close();
-      renderSummary();
       setStatus("");
-      loadMonth(null, false);
+      start();
     }
 
     if (form) {
@@ -435,7 +481,10 @@
       setInterval(checkVariant, 750);
     }
 
-    loadMonth(null, false);
+    // Let the page paint with the theme's original button first.
+    requestAnimationFrame(function () {
+      requestAnimationFrame(start);
+    });
   }
 
   function readHourPref() {

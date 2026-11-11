@@ -3,14 +3,15 @@ import { DateTime } from "luxon";
 
 import { buildSlotParams, loadBookableService } from "../lib/booking/context.server";
 import { NOT_BOOKABLE, proxyJson, proxyShop } from "../lib/booking/proxy.server";
-import { bookableDays } from "../lib/slots/engine";
+import { slotsByDay } from "../lib/slots/engine";
 
 /**
  * GET /apps/booking/availability?variant=<id>&month=YYYY-MM
  *
- * Which days of a month have at least one open slot. The widget's first call:
- * a 404 `{ bookable: false }` tells it this variant isn't a service, and it
- * stays hidden.
+ * Which days of a month have at least one open slot, plus those slots grouped
+ * by day — computing the days already produces them, and shipping them lets
+ * the widget show times without a /slots request per day. The widget's first
+ * call: a 404 `{ bookable: false }` tells it this variant isn't a service.
  */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const shop = await proxyShop(request);
@@ -33,12 +34,21 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const from = DateTime.max(month.startOf("month"), nowLocal);
   const to = DateTime.min(month.endOf("month"), lastLocal);
 
-  const days =
+  const byDay =
     from < to
-      ? bookableDays(
+      ? slotsByDay(
           await buildSlotParams(service, from.toJSDate(), to.toJSDate(), now),
         )
-      : [];
+      : {};
+  const days = Object.keys(byDay).sort();
+  // `end` is left out: the widget only needs the start, and a month of short
+  // slots adds up.
+  const slots = Object.fromEntries(
+    days.map((day) => [
+      day,
+      byDay[day].map((s) => ({ start: s.startsAt.toISOString(), remaining: s.remaining })),
+    ]),
+  );
 
   return proxyJson({
     bookable: true,
@@ -49,5 +59,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     firstMonth: nowLocal.toFormat("yyyy-MM"),
     lastMonth: lastLocal.toFormat("yyyy-MM"),
     days,
+    // Lets the widget show "3 / 5 available" for group services.
+    capacity: service.geometry.capacityPerSlot,
+    slots,
+    // The popup's second step: time range, questions, signature.
+    duration: service.geometry.durationMinutes,
+    questions: service.questions,
+    signature: service.requireSignature,
   });
 };

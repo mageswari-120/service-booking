@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 
 import db from "../../db.server";
 import { buildSlotParams, type BookableService } from "../booking/context.server";
+import type { IntakeAnswer } from "../booking/details";
 import { computeSlots } from "../slots/engine";
 import { holdSecret, signHoldToken, verifyHoldToken } from "./token";
 
@@ -19,11 +20,19 @@ export type HoldResult =
  *
  * `releaseToken` is the customer's previous hold, if they're changing time;
  * it is expired in the same transaction so they never hold two seats.
+ *
+ * `details` (already validated by validateHoldDetails) is stored on the hold
+ * for the orders handler: how many seats, the intake answers and signature.
  */
 export async function createHold(
   service: BookableService,
   startsAt: Date,
   releaseToken: string | null,
+  details: { seats: number; answers: IntakeAnswer[]; signaturePng: Buffer | null } = {
+    seats: 1,
+    answers: [],
+    signaturePng: null,
+  },
   now: Date = new Date(),
 ): Promise<HoldResult> {
   const secret = holdSecret();
@@ -49,14 +58,22 @@ export async function createHold(
       tx,
     );
     const offered = computeSlots(params).some(
-      (s) => s.startsAt.getTime() === startsAt.getTime(),
+      (s) => s.startsAt.getTime() === startsAt.getTime() && s.remaining >= details.seats,
     );
     if (!offered) return { ok: false, reason: "unavailable" } as const;
 
     const token = signHoldToken(randomBytes(16).toString("base64url"), secret);
     const expiresAt = new Date(now.getTime() + service.holdTtlMinutes * 60_000);
     await tx.slotHold.create({
-      data: { serviceId: service.id, startsAt, token, expiresAt },
+      data: {
+        serviceId: service.id,
+        startsAt,
+        token,
+        expiresAt,
+        seats: details.seats,
+        intakeAnswers: details.answers.length ? (details.answers as object[]) : undefined,
+        signaturePng: details.signaturePng ? new Uint8Array(details.signaturePng) : undefined,
+      },
     });
     return { ok: true, token, expiresAt } as const;
   });

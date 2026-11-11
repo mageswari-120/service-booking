@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 import { describe, expect, it } from "vitest";
 
-import { bookableDays, computeSlots, isOfferedSlot } from "./engine";
+import { bookableDays, computeSlots, isOfferedSlot, slotsByDay } from "./engine";
 import type { ComputeSlotsParams, ServiceGeometry } from "./types";
 
 const NY = "America/New_York";
@@ -362,6 +362,32 @@ describe("bookableDays", () => {
     );
     // 2027-06-01 Tue, 06-03 Thu, 06-08 would be the next Tue (out of range).
     expect(days).toEqual(["2027-06-01", "2027-06-03"]);
+  });
+});
+
+describe("slotsByDay", () => {
+  it("groups every slot under its local date, in order, matching bookableDays", () => {
+    const start = DateTime.fromISO("2027-06-01", { zone: NY }).startOf("day");
+    const p = params({
+      windows: [
+        { dayOfWeek: 2, startMinute: h(9), endMinute: h(11) },
+        { dayOfWeek: 4, startMinute: h(14), endMinute: h(15) },
+      ],
+      rangeStart: start.toJSDate(),
+      rangeEnd: start.plus({ days: 7 }).toJSDate(),
+    });
+    const byDay = slotsByDay(p);
+
+    expect(Object.keys(byDay).sort()).toEqual(bookableDays(p));
+    expect(byDay["2027-06-01"].map((s) => s.startsAt)).toEqual([
+      at(NY, "2027-06-01T09:00"),
+      at(NY, "2027-06-01T10:00"),
+    ]);
+    expect(byDay["2027-06-03"].map((s) => s.startsAt)).toEqual([
+      at(NY, "2027-06-03T14:00"),
+    ]);
+    // Nothing lost or duplicated.
+    expect(Object.values(byDay).flat()).toHaveLength(computeSlots(p).length);
   });
 });
 
