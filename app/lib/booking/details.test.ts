@@ -12,7 +12,7 @@ const questions: IntakeQuestion[] = [
   { id: "name2", type: "text", label: "Guest name", required: true },
   { id: "terms", type: "checkbox", label: "Accept terms", required: true },
 ];
-const service = { questions, requireSignature: false, capacityPerSlot: 5 };
+const service = { questions, requireSignature: false, minSeats: 1, maxSeats: 5 };
 
 /** Smallest valid-looking PNG: magic bytes + padding. */
 function png(size = 64): string {
@@ -52,7 +52,7 @@ describe("validateHoldDetails", () => {
     });
   });
 
-  it("defaults seats to 1 and bounds it by capacity", () => {
+  it("defaults seats to the minimum and bounds it by min/max per booking", () => {
     const one = validateHoldDetails(service, { answers: ok.answers });
     expect(one.ok && one.seats).toBe(1);
     for (const seats of [0, 6, 1.5, "x"]) {
@@ -61,6 +61,22 @@ describe("validateHoldDetails", () => {
         field: "seats",
       });
     }
+
+    const groups = { ...service, minSeats: 2, maxSeats: 4 };
+    const dflt = validateHoldDetails(groups, { answers: ok.answers });
+    expect(dflt.ok && dflt.seats).toBe(2);
+    expect(validateHoldDetails(groups, { ...ok, seats: 4 }).ok).toBe(true);
+    expect(validateHoldDetails(groups, { ...ok, seats: 1 })).toMatchObject({
+      ok: false,
+      error: "Choose between 2 and 4 people.",
+    });
+    expect(validateHoldDetails(groups, { ...ok, seats: 5 }).ok).toBe(false);
+  });
+
+  it("leaves the upper bound to the slot when there is no max per booking", () => {
+    const open = { ...service, minSeats: 1, maxSeats: null };
+    expect(validateHoldDetails(open, { ...ok, seats: 40 }).ok).toBe(true);
+    expect(validateHoldDetails(open, { ...ok, seats: 1001 }).ok).toBe(false);
   });
 
   it("requires required text and checkbox answers", () => {

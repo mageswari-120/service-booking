@@ -19,8 +19,13 @@
     var el = ctx.el;
     var t = ctx.t;
     var slot = state.pick;
-    var max = Math.max(1, Math.min(slot.remaining || 1, state.capacity));
-    var seats = 1;
+    // Party size: the service's min/max per booking. In people mode the slot's
+    // free places cap it too; in bookings mode a booking takes one place.
+    var min = Math.max(1, state.minSeats || 1);
+    var limit = state.maxSeats || (state.mode === "bookings" ? min : Infinity);
+    var max = state.mode === "bookings" ? limit : Math.min(limit, slot.remaining || 1);
+    max = Math.max(min, max);
+    var seats = min;
     var fields = {}; // question id / "signature" -> { input, error }
     var pad = null;
     var busy = false;
@@ -77,9 +82,14 @@
     ];
 
     // --- People --------------------------------------------------------------
-    if (state.capacity > 1) {
-      parts.push(field("seats", labelFor(t("People")), t("PeopleHelp", { max: max }),
-        stepper(function () { return seats; }, function (n) { seats = n; }, 1, max, t("People"))));
+    if (max > 1) {
+      var help = min === max
+        ? t("PeopleHelpExact", { count: min })
+        : min > 1
+          ? t("PeopleHelpRange", { min: min, max: max })
+          : t("PeopleHelp", { max: max });
+      parts.push(field("seats", labelFor(t("People")), help,
+        stepper(function () { return seats; }, function (n) { seats = n; }, min, max, t("People"))));
     }
 
     // --- Questions -----------------------------------------------------------

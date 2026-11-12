@@ -11,6 +11,7 @@ import {
   MAX_HELP,
   MAX_LABEL,
   MAX_QUESTIONS,
+  MAX_SEATS,
   type IntakeQuestion,
 } from "../booking/details";
 
@@ -23,7 +24,23 @@ export interface WindowInput {
   start: string;
   /** "HH:MM". "00:00" as an end time means midnight at the end of the day. */
   end: string;
+  /** Slot limit for these hours. Empty/null => the service's default. */
+  capacity?: number | string | null;
 }
+
+/** Most date-specific limits per service. */
+export const MAX_OVERRIDES = 100;
+
+export interface OverrideInput {
+  /** "YYYY-MM-DD", service-local. */
+  date: string;
+  /** "HH:MM"; both empty => the whole day. */
+  start: string;
+  end: string;
+  capacity: number | string;
+}
+
+export type CapacityModeInput = "PEOPLE" | "BOOKINGS";
 
 export interface ServiceFormInput {
   shopifyProductId: string;
@@ -38,9 +55,16 @@ export interface ServiceFormInput {
   leadTimeMinutes: number | string;
   maxAdvanceDays: number | string;
   capacityPerSlot: number | string;
+  /** What slot limits count: people (seats) or bookings. */
+  capacityMode: CapacityModeInput;
+  minSeatsPerBooking: number | string;
+  /** Empty string or null => no per-booking maximum. */
+  maxSeatsPerBooking: number | string | null;
   /** Empty string or null => use the shop's timezone. */
   timezone: string | null;
   windows: WindowInput[];
+  /** Different slot limits on specific dates. */
+  capacityOverrides: OverrideInput[];
   /** Asked in the booking popup's second step. */
   intakeQuestions: IntakeQuestion[];
   requireSignature: boolean;
@@ -60,8 +84,22 @@ export interface ServiceData {
   leadTimeMinutes: number;
   maxAdvanceDays: number;
   capacityPerSlot: number;
+  capacityMode: CapacityModeInput;
+  minSeatsPerBooking: number;
+  maxSeatsPerBooking: number | null;
   timezone: string | null;
-  windows: { dayOfWeek: number; startMinute: number; endMinute: number }[];
+  windows: {
+    dayOfWeek: number;
+    startMinute: number;
+    endMinute: number;
+    capacity: number | null;
+  }[];
+  capacityOverrides: {
+    date: string;
+    startMinute: number | null;
+    endMinute: number | null;
+    capacity: number;
+  }[];
   intakeQuestions: IntakeQuestion[];
   requireSignature: boolean;
   upsellVariantIds: string[];
@@ -126,7 +164,29 @@ export function parseServiceInput(input: ServiceFormInput): ParseResult {
   const bufferAfterMinutes = int("bufferAfterMinutes", 0, 240, "Buffer after");
   const leadTimeMinutes = int("leadTimeMinutes", 0, 60 * 24 * 30, "Minimum notice");
   const maxAdvanceDays = int("maxAdvanceDays", 1, 365, "Booking window");
-  const capacityPerSlot = int("capacityPerSlot", 1, 1000, "Capacity");
+  const capacityMode: CapacityModeInput =
+    input.capacityMode === "BOOKINGS" ? "BOOKINGS" : "PEOPLE";
+  const byBookings = capacityMode === "BOOKINGS";
+  const capacityPerSlot = int(
+    "capacityPerSlot",
+    1,
+    MAX_SEATS,
+    byBookings ? "Bookings per slot" : "Customers per slot",
+  );
+  const minSeatsPerBooking = int("minSeatsPerBooking", 1, MAX_SEATS, "Minimum people");
+  const maxSeatsPerBooking = optionalInt(input.maxSeatsPerBooking, 1, MAX_SEATS);
+  if (maxSeatsPerBooking === "invalid") {
+    errors.maxSeatsPerBooking = `Maximum people must be a whole number between 1 and ${MAX_SEATS}, or empty.`;
+  } else if (
+    maxSeatsPerBooking !== null &&
+    !errors.minSeatsPerBooking &&
+    maxSeatsPerBooking < minSeatsPerBooking
+  ) {
+    errors.maxSeatsPerBooking = "Maximum people can't be less than the minimum.";
+  }
+  // In people mode a party bigger than every slot limit could never book.
+  // Checked after windows/overrides are parsed, against the largest limit.
+  const largestLimit: number[] = [capacityPerSlot];
 
   let slotIntervalMinutes: number | null = null;
   if (
@@ -166,7 +226,13 @@ export function parseServiceInput(input: ServiceFormInput): ParseResult {
       errors[key] = "These hours are shorter than the service, so no slots fit.";
       return;
     }
-    windows.push({ dayOfWeek: w.dayOfWeek, startMinute: start, endMinute: end });
+    const capacity = optionalInt(w.capacity, 1, MAX_SEATS);
+    if (capacity === "invalid") {
+      errors[key] = `Limit must be a whole number between 1 and ${MAX_SEATS}, or empty.`;
+      return;
+    }
+    if (capacity !== null) largestLimit.push(capacity);
+    windows.push({ dayOfWeek: w.dayOfWeek, startMinute: start, endMinute: end, capacity });
     sourceRow.push(index);
   });
 
@@ -183,6 +249,55 @@ export function parseServiceInput(input: ServiceFormInput): ParseResult {
         errors[`windows.${later}`] = `Overlaps other ${DAY_NAMES[day]} hours.`;
       }
     }
+  }
+
+  const capacityOverrides: ServiceData["capacityOverrides"] = [];
+  const rawOverrides = input.capacityOverrides ?? [];
+  if (rawOverrides.length > MAX_OVERRIDES) {
+    errors.capacityOverrides = `Up to ${MAX_OVERRIDES} date-specific limits.`;
+  }
+  rawOverrides.slice(0, MAX_OVERRIDES).forEach((o, index) => {
+    const key = `capacityOverrides.${index}`;
+    const date = (o.date ?? "").trim();
+    if (!isValidDate(date)) {
+      errors[key] = "Choose a date.";
+      return;
+    }
+    const startText = (o.start ?? "").trim();
+    const endText = (o.end ?? "").trim();
+    let startMinute: number | null = null;
+    let endMinute: number | null = null;
+    if (startText || endText) {
+      const start = parseHhMm(startText);
+      const endRaw = parseHhMm(endText);
+      if (start === null || endRaw === null) {
+        errors[key] = "Use a valid time for both From and To, or leave both empty for the whole day.";
+        return;
+      }
+      const end = endRaw === 0 ? MINUTES_PER_DAY : endRaw;
+      if (end <= start) {
+        errors[key] = "To must be after From.";
+        return;
+      }
+      startMinute = start;
+      endMinute = end;
+    }
+    const capacity = optionalInt(o.capacity, 1, MAX_SEATS);
+    if (capacity === null || capacity === "invalid") {
+      errors[key] = `Limit must be a whole number between 1 and ${MAX_SEATS}.`;
+      return;
+    }
+    largestLimit.push(capacity);
+    capacityOverrides.push({ date, startMinute, endMinute, capacity });
+  });
+
+  if (
+    !byBookings &&
+    !errors.capacityPerSlot &&
+    !errors.minSeatsPerBooking &&
+    minSeatsPerBooking > Math.max(...largestLimit)
+  ) {
+    errors.minSeatsPerBooking = "Minimum people is more than any slot allows, so nobody could book.";
   }
 
   const intakeQuestions: IntakeQuestion[] = [];
@@ -242,8 +357,12 @@ export function parseServiceInput(input: ServiceFormInput): ParseResult {
       leadTimeMinutes,
       maxAdvanceDays,
       capacityPerSlot,
+      capacityMode,
+      minSeatsPerBooking,
+      maxSeatsPerBooking: maxSeatsPerBooking as number | null,
       timezone,
       windows,
+      capacityOverrides,
       intakeQuestions,
       requireSignature: Boolean(input.requireSignature),
       upsellVariantIds,
@@ -261,6 +380,29 @@ function parseHhMm(value: string | undefined): number | null {
   const match = HHMM.exec((value ?? "").trim());
   if (!match) return null;
   return Number(match[1]) * 60 + Number(match[2]);
+}
+
+/**
+ * An optional whole number: empty/null => null, out of range or not whole =>
+ * "invalid".
+ */
+function optionalInt(
+  raw: number | string | null | undefined,
+  min: number,
+  max: number,
+): number | null | "invalid" {
+  if (raw === null || raw === undefined || String(raw).trim() === "") return null;
+  const value = typeof raw === "number" ? raw : Number(String(raw).trim());
+  if (!Number.isInteger(value) || value < min || value > max) return "invalid";
+  return value;
+}
+
+/** A real calendar date written as YYYY-MM-DD. */
+function isValidDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const d = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return d.toISOString().slice(0, 10) === value;
 }
 
 function isValidTimeZone(zone: string): boolean {

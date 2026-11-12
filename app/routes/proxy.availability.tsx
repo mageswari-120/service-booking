@@ -1,7 +1,11 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { DateTime } from "luxon";
 
-import { buildSlotParams, loadBookableService } from "../lib/booking/context.server";
+import {
+  buildSlotParams,
+  loadBookableService,
+  seatRules,
+} from "../lib/booking/context.server";
 import { NOT_BOOKABLE, proxyJson, proxyShop } from "../lib/booking/proxy.server";
 import { slotsByDay } from "../lib/slots/engine";
 
@@ -46,7 +50,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const slots = Object.fromEntries(
     days.map((day) => [
       day,
-      byDay[day].map((s) => ({ start: s.startsAt.toISOString(), remaining: s.remaining })),
+      byDay[day].map((s) => ({
+        start: s.startsAt.toISOString(),
+        capacity: s.capacity,
+        remaining: s.remaining,
+      })),
     ]),
   );
 
@@ -59,8 +67,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     firstMonth: nowLocal.toFormat("yyyy-MM"),
     lastMonth: lastLocal.toFormat("yyyy-MM"),
     days,
-    // Lets the widget show "3 / 5 available" for group services.
+    // Default limit; each slot carries its own `capacity` too.
     capacity: service.geometry.capacityPerSlot,
+    ...seatRules(service),
     slots,
     // The popup's second step: time range, questions, signature.
     duration: service.geometry.durationMinutes,

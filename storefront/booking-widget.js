@@ -55,7 +55,10 @@
       byDay: {}, // "YYYY-MM-DD" -> [{ start, remaining }] for the loaded month
       date: null,
       slots: null,
-      capacity: 1,
+      capacity: 1, // the service's default slot limit; slots carry their own
+      mode: "people", // what slot limits count: "people" or "bookings"
+      minSeats: 1,
+      maxSeats: null, // null: only the slot's free places limit party size
       duration: 0,
       questions: [],
       signature: false,
@@ -115,6 +118,16 @@
 
     function formatTime(iso) {
       return fmt(iso, { hour: "numeric", minute: "2-digit", hourCycle: state.h24 ? "h23" : "h12" });
+    }
+
+    /** "3 / 10 available" (people) or "2 spots left" (bookings); none for 1-per-slot. */
+    function slotLabel(slot) {
+      var total = slot.capacity || state.capacity;
+      if (total <= 1) return null;
+      var text = state.mode === "bookings"
+        ? t("SpotsLeft", { count: slot.remaining })
+        : t("Available", { count: slot.remaining, total: total });
+      return el("small", { text: text });
     }
 
     // ---------------------------------------------------------------------
@@ -423,9 +436,7 @@
           },
         }, [
           el("span", { text: formatTime(slot.start) }),
-          state.capacity > 1
-            ? el("small", { text: t("Available", { count: slot.remaining, total: state.capacity }) })
-            : null,
+          slotLabel(slot),
         ]));
       });
       timesEl.appendChild(list);
@@ -462,6 +473,9 @@
           state.days = d.days;
           state.byDay = d.slots || {};
           state.capacity = d.capacity || 1;
+          state.mode = d.mode || "people";
+          state.minSeats = d.minSeats || 1;
+          state.maxSeats = d.maxSeats || null;
           state.duration = d.duration || 0;
           state.questions = d.questions || [];
           state.signature = !!d.signature;

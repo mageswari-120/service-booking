@@ -22,6 +22,8 @@ export interface IntakeAnswer {
 }
 
 export const MAX_QUESTIONS = 10;
+/** Highest slot limit or party size the admin accepts. */
+export const MAX_SEATS = 1000;
 export const MAX_LABEL = 200;
 export const MAX_HELP = 300;
 export const MAX_ANSWER = 500;
@@ -78,15 +80,30 @@ export type HoldDetailsResult =
  * things first; this is the authoritative copy.
  */
 export function validateHoldDetails(
-  service: { questions: IntakeQuestion[]; requireSignature: boolean; capacityPerSlot: number },
+  service: {
+    questions: IntakeQuestion[];
+    requireSignature: boolean;
+    /** Smallest party per booking. */
+    minSeats: number;
+    /** Largest party per booking; null => only the slot's free seats limit it. */
+    maxSeats: number | null;
+  },
   body: { seats?: unknown; answers?: unknown; signature?: unknown },
 ): HoldDetailsResult {
-  const seats = body.seats === undefined ? 1 : Number(body.seats);
-  if (!Number.isInteger(seats) || seats < 1 || seats > service.capacityPerSlot) {
+  const min = Math.max(1, service.minSeats);
+  // With no per-booking maximum, the hold's capacity check is the real limit.
+  const max = service.maxSeats ?? MAX_SEATS;
+  const seats = body.seats === undefined ? min : Number(body.seats);
+  if (!Number.isInteger(seats) || seats < min || seats > max) {
     return {
       ok: false,
       field: "seats",
-      error: `Choose between 1 and ${service.capacityPerSlot} people.`,
+      error:
+        service.maxSeats === null
+          ? `Choose at least ${min} ${min === 1 ? "person" : "people"}.`
+          : min === max
+            ? `This booking is for exactly ${min} ${min === 1 ? "person" : "people"}.`
+            : `Choose between ${min} and ${max} people.`,
     };
   }
 

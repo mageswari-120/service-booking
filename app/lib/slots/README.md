@@ -44,8 +44,15 @@ does remove the slot. Buffers shape spacing and conflicts, not window fit.
 
 ## Capacity
 
-`remaining = capacityPerSlot - (live holds + confirmed bookings at that start)`.
-Only slots with `remaining > 0` are returned. The caller supplies `usage`; the
-engine never counts for itself. The authoritative capacity check is the
+`remaining = capacity - (live holds + confirmed bookings at that start)`.
+
+A slot's `capacity` is, most specific first: a date override on that local
+date (whole day, or a minute range containing the start), then the weekly
+window's own `capacity`, then `capacityPerSlot` (see `capacityAt`).
+
+Usage is in the service's units: seats in PEOPLE mode, bookings in BOOKINGS
+mode. Only slots with `remaining >= minUnitsPerHold` (the smallest allowed
+booking) are returned. The caller supplies `usage`; the engine never counts
+for itself. The authoritative capacity check is the
 transaction in the hold manager — the engine's count is for display, and is
 already stale by the time the customer reads it.

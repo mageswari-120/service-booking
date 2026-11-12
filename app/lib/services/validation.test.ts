@@ -19,8 +19,12 @@ function valid(overrides: Partial<ServiceFormInput> = {}): ServiceFormInput {
     leadTimeMinutes: "120",
     maxAdvanceDays: "60",
     capacityPerSlot: "1",
+    capacityMode: "PEOPLE",
+    minSeatsPerBooking: "1",
+    maxSeatsPerBooking: "",
     timezone: "",
     windows: [{ dayOfWeek: 1, start: "09:00", end: "17:00" }],
+    capacityOverrides: [],
     intakeQuestions: [],
     requireSignature: false,
     upsellVariantIds: [],
@@ -45,7 +49,11 @@ describe("parseServiceInput", () => {
         bufferAfterMinutes: 15,
         slotIntervalMinutes: null,
         timezone: null,
-        windows: [{ dayOfWeek: 1, startMinute: 540, endMinute: 1020 }],
+        windows: [{ dayOfWeek: 1, startMinute: 540, endMinute: 1020, capacity: null }],
+        capacityMode: "PEOPLE",
+        minSeatsPerBooking: 1,
+        maxSeatsPerBooking: null,
+        capacityOverrides: [],
       }),
     });
   });
@@ -72,6 +80,83 @@ describe("parseServiceInput", () => {
       "durationMinutes",
       "maxAdvanceDays",
     ]);
+  });
+
+  describe("slot limits", () => {
+    it("parses per-window limits and date overrides", () => {
+      const result = parseServiceInput(
+        valid({
+          capacityPerSlot: "10",
+          windows: [
+            { dayOfWeek: 1, start: "09:00", end: "17:00" },
+            { dayOfWeek: 6, start: "09:00", end: "17:00", capacity: "20" },
+          ],
+          capacityOverrides: [
+            { date: "2027-12-24", start: "", end: "", capacity: "5" },
+            { date: "2027-12-31", start: "10:00", end: "12:00", capacity: "3" },
+          ],
+        }),
+      );
+      expect(result.ok && result.data.windows.map((w) => w.capacity)).toEqual([null, 20]);
+      expect(result.ok && result.data.capacityOverrides).toEqual([
+        { date: "2027-12-24", startMinute: null, endMinute: null, capacity: 5 },
+        { date: "2027-12-31", startMinute: 600, endMinute: 720, capacity: 3 },
+      ]);
+    });
+
+    it("rejects bad override dates, half-filled times and empty limits", () => {
+      const errors = errorsOf(
+        valid({
+          capacityOverrides: [
+            { date: "2027-02-30", start: "", end: "", capacity: "5" },
+            { date: "2027-03-01", start: "10:00", end: "", capacity: "5" },
+            { date: "2027-03-02", start: "12:00", end: "10:00", capacity: "5" },
+            { date: "2027-03-03", start: "", end: "", capacity: "" },
+          ],
+        }),
+      );
+      expect(Object.keys(errors).sort()).toEqual([
+        "capacityOverrides.0",
+        "capacityOverrides.1",
+        "capacityOverrides.2",
+        "capacityOverrides.3",
+      ]);
+    });
+
+    it("rejects a bad window limit", () => {
+      expect(
+        errorsOf(valid({ windows: [{ dayOfWeek: 1, start: "09:00", end: "17:00", capacity: "0" }] })),
+      ).toHaveProperty("windows.0");
+    });
+
+    it("checks min and max people per booking", () => {
+      expect(
+        errorsOf(valid({ capacityPerSlot: "10", minSeatsPerBooking: "4", maxSeatsPerBooking: "2" })),
+      ).toHaveProperty("maxSeatsPerBooking");
+      // In people mode, a minimum party bigger than every slot can never book…
+      expect(errorsOf(valid({ capacityPerSlot: "3", minSeatsPerBooking: "4" }))).toHaveProperty(
+        "minSeatsPerBooking",
+      );
+      // …unless some hours allow more.
+      expect(
+        parseServiceInput(
+          valid({
+            capacityPerSlot: "3",
+            minSeatsPerBooking: "4",
+            windows: [{ dayOfWeek: 6, start: "09:00", end: "17:00", capacity: "8" }],
+          }),
+        ).ok,
+      ).toBe(true);
+      // In bookings mode the limit counts bookings, so party size is independent.
+      const bookings = parseServiceInput(
+        valid({ capacityMode: "BOOKINGS", capacityPerSlot: "2", minSeatsPerBooking: "4", maxSeatsPerBooking: "6" }),
+      );
+      expect(bookings.ok && bookings.data).toMatchObject({
+        capacityMode: "BOOKINGS",
+        minSeatsPerBooking: 4,
+        maxSeatsPerBooking: 6,
+      });
+    });
   });
 
   it("keeps an explicit slot interval", () => {

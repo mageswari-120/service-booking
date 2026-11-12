@@ -38,6 +38,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       active: true,
       durationMinutes: true,
       capacityPerSlot: true,
+      capacityMode: true,
       availabilityRules: { select: { dayOfWeek: true } },
     },
   });
@@ -158,7 +159,12 @@ export default function Services() {
                     </IndexTable.Cell>
                     <IndexTable.Cell>{s.durationMinutes} min</IndexTable.Cell>
                     <IndexTable.Cell>{s.days}</IndexTable.Cell>
-                    <IndexTable.Cell>{s.capacityPerSlot}</IndexTable.Cell>
+                    <IndexTable.Cell>
+                      {s.capacityPerSlot}{" "}
+                      {s.capacityMode === "BOOKINGS"
+                        ? s.capacityPerSlot === 1 ? "booking" : "bookings"
+                        : s.capacityPerSlot === 1 ? "person" : "people"}
+                    </IndexTable.Cell>
                     <IndexTable.Cell>
                       {s.active ? (
                         <Badge tone="success">Active</Badge>

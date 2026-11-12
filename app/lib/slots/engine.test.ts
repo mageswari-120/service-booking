@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 import { describe, expect, it } from "vitest";
 
-import { bookableDays, computeSlots, isOfferedSlot, slotsByDay } from "./engine";
+import { bookableDays, computeSlots, isOfferedSlot, slotCapacity, slotsByDay } from "./engine";
 import type { ComputeSlotsParams, ServiceGeometry } from "./types";
 
 const NY = "America/New_York";
@@ -264,6 +264,112 @@ describe("computeSlots — capacity", () => {
     };
     expect(computeSlots(params({ ...base, service: geometry({ capacityPerSlot: 0 }) }))).toEqual([]);
     expect(computeSlots(params({ ...base, service: geometry({ durationMinutes: 0 }) }))).toEqual([]);
+  });
+
+  it("uses a weekly window's own limit over the service default", () => {
+    // 2027-06-05 is a Saturday (dayOfWeek 6); 2027-06-01 a Tuesday.
+    const windows = [
+      { dayOfWeek: 2, startMinute: h(9), endMinute: h(10) },
+      { dayOfWeek: 6, startMinute: h(9), endMinute: h(10), capacity: 20 },
+    ];
+    const service = geometry({ capacityPerSlot: 10 });
+    const tue = computeSlots(params({ service, windows, ...dayRange(NY, "2027-06-01") }));
+    const sat = computeSlots(params({ service, windows, ...dayRange(NY, "2027-06-05") }));
+    expect(tue.map((s) => s.capacity)).toEqual([10]);
+    expect(sat.map((s) => [s.capacity, s.remaining])).toEqual([[20, 20]]);
+  });
+
+  it("lets a date override beat the weekly limit, for the whole day or a time range", () => {
+    const windows = [{ dayOfWeek: 2, startMinute: h(9), endMinute: h(12), capacity: 8 }];
+    const service = geometry({ capacityPerSlot: 10 });
+    const range = dayRange(NY, "2027-06-01");
+
+    const wholeDay = computeSlots(
+      params({
+        service,
+        windows,
+        overrides: [{ date: "2027-06-01", startMinute: null, endMinute: null, capacity: 5 }],
+        ...range,
+      }),
+    );
+    expect(wholeDay.map((s) => s.capacity)).toEqual([5, 5, 5]);
+
+    const morning = computeSlots(
+      params({
+        service,
+        windows,
+        overrides: [
+          { date: "2027-06-02", startMinute: null, endMinute: null, capacity: 1 },
+          { date: "2027-06-01", startMinute: h(10), endMinute: h(11), capacity: 3 },
+        ],
+        ...range,
+      }),
+    );
+    expect(morning.map((s) => s.capacity)).toEqual([8, 3, 8]);
+  });
+
+  it("hides a slot whose free seats can't fit the smallest allowed booking", () => {
+    const nine = at(NY, "2027-06-01T09:00");
+    const slots = computeSlots(
+      params({
+        service: geometry({ capacityPerSlot: 10, minUnitsPerHold: 2 }),
+        windows: [{ dayOfWeek: 2, startMinute: h(9), endMinute: h(11) }],
+        usage: [{ startsAt: nine, count: 9 }],
+        ...dayRange(NY, "2027-06-01"),
+      }),
+    );
+    expect(localTimes(slots, NY)).toEqual(["10:00"]);
+  });
+});
+
+describe("computeSlots — 10 people per slot", () => {
+  const nine = at(NY, "2027-06-01T09:00");
+  const tuesday = { dayOfWeek: 2, startMinute: h(9), endMinute: h(10) };
+  const service = geometry({ capacityPerSlot: 10 });
+  const run = (count: number, windows = [tuesday], date = "2027-06-01", startsAt = nine) =>
+    computeSlots(
+      params({ service, windows, usage: [{ startsAt, count }], ...dayRange(NY, date) }),
+    );
+
+  it("turns away the 11th person once 10 seats are taken", () => {
+    expect(run(10)).toEqual([]);
+  });
+
+  it("leaves exactly one seat when 9 are taken, too few for a group of 2", () => {
+    const [slot] = run(9);
+    expect(slot.remaining).toBe(1);
+    // createHold only accepts a hold when remaining >= seats.
+    expect(slot.remaining >= 2).toBe(false);
+  });
+
+  it("still offers a 20-person Saturday slot after 10 bookings", () => {
+    const saturday = { dayOfWeek: 6, startMinute: h(9), endMinute: h(10), capacity: 20 };
+    const satNine = at(NY, "2027-06-05T09:00");
+    const [slot] = run(10, [saturday], "2027-06-05", satNine);
+    expect([slot.capacity, slot.remaining]).toEqual([20, 10]);
+  });
+});
+
+describe("slotCapacity", () => {
+  const service = geometry({ capacityPerSlot: 10 });
+  const windows = [{ dayOfWeek: 6, startMinute: h(9), endMinute: h(17), capacity: 20 }];
+
+  it("finds the window and override limits for an instant, ignoring lead time", () => {
+    expect(slotCapacity({ service, windows }, at(NY, "2027-06-05T09:00"))).toBe(20);
+    expect(
+      slotCapacity(
+        {
+          service,
+          windows,
+          overrides: [{ date: "2027-06-05", startMinute: null, endMinute: null, capacity: 4 }],
+        },
+        at(NY, "2027-06-05T09:00"),
+      ),
+    ).toBe(4);
+  });
+
+  it("falls back to the service default outside every window", () => {
+    expect(slotCapacity({ service, windows }, at(NY, "2027-06-01T09:00"))).toBe(10);
   });
 });
 

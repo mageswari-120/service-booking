@@ -3,6 +3,7 @@ import type { Booking, BookingStatus, Prisma } from "@prisma/client";
 import db from "../../db.server";
 import { holdSecret, verifyHoldToken } from "../holds/token";
 import { resolveTimezone } from "../shop.server";
+import { slotCapacity } from "../slots/engine";
 import { bookingLines, orderCustomer, type OrderPayload } from "./order";
 
 export interface CreatedBooking {
@@ -13,7 +14,11 @@ export interface CreatedBooking {
   isNew: boolean;
 }
 
-const serviceInclude = { shop: { select: { domain: true, timezone: true } } } as const;
+const serviceInclude = {
+  shop: { select: { domain: true, timezone: true } },
+  availabilityRules: true,
+  capacityOverrides: true,
+} as const;
 type ServiceWithShop = Prisma.ServiceGetPayload<{ include: typeof serviceInclude }>;
 
 /**
@@ -99,14 +104,32 @@ export async function createBookingsFromOrder(
           tx.slotHold.aggregate({
             where: { serviceId: svc.id, startsAt, consumedAt: null, expiresAt: { gt: now } },
             _sum: { seats: true },
+            _count: { _all: true },
           }),
           tx.booking.aggregate({
             where: { serviceId: svc.id, startsAt, status: "CONFIRMED" },
             _sum: { seats: true },
+            _count: { _all: true },
           }),
         ]);
-        const used = (held._sum.seats ?? 0) + (booked._sum.seats ?? 0);
-        if (used + seats > svc.capacityPerSlot) {
+        // Same units as the slot list: seats (PEOPLE) or bookings (BOOKINGS).
+        const byBookings = svc.capacityMode === "BOOKINGS";
+        const used = byBookings
+          ? held._count._all + booked._count._all
+          : (held._sum.seats ?? 0) + (booked._sum.seats ?? 0);
+        const needed = byBookings ? 1 : seats;
+        const capacity = slotCapacity(
+          {
+            service: {
+              capacityPerSlot: svc.capacityPerSlot,
+              timezone: resolveTimezone(svc.timezone, svc.shop.timezone),
+            },
+            windows: svc.availabilityRules,
+            overrides: svc.capacityOverrides,
+          },
+          startsAt,
+        );
+        if (used + needed > capacity) {
           status = "CONFLICT";
           conflictNote = "The hold expired during checkout and the slot filled up in the meantime.";
         }

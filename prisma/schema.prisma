@@ -94,6 +94,13 @@ model Service {
   leadTimeMinutes     Int  @default(120)
   maxAdvanceDays      Int  @default(60)
   capacityPerSlot     Int  @default(1)
+  // PEOPLE: capacity counts seats (party size). BOOKINGS: counts bookings,
+  // whatever the party size.
+  capacityMode        CapacityMode @default(PEOPLE)
+  // Party size allowed on one booking. Null max => up to the slot capacity in
+  // PEOPLE mode, 1 in BOOKINGS mode.
+  minSeatsPerBooking  Int  @default(1)
+  maxSeatsPerBooking  Int?
 
   // Overrides Shop.timezone when set
   timezone String?
@@ -111,6 +118,7 @@ model Service {
 
   availabilityRules AvailabilityRule[]
   blackouts         Blackout[]
+  capacityOverrides CapacityOverride[]
   holds             SlotHold[]
   bookings          Booking[]
 
@@ -130,10 +138,36 @@ model AvailabilityRule {
   dayOfWeek   Int // 0 = Sunday ... 6 = Saturday
   startMinute Int // minutes from local midnight, inclusive
   endMinute   Int // minutes from local midnight, exclusive
+  capacity    Int? // slot limit for this window; null => Service.capacityPerSlot
 
   createdAt DateTime @default(now())
 
   @@index([serviceId, dayOfWeek])
+}
+
+enum CapacityMode {
+  PEOPLE
+  BOOKINGS
+}
+
+// ---------------------------------------------------------------------------
+// CapacityOverride — a different slot limit on one local date (optionally
+// only between startMinute and endMinute). Beats the weekly-hours limit.
+// ---------------------------------------------------------------------------
+
+model CapacityOverride {
+  id        String  @id @default(cuid())
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  date        String // "YYYY-MM-DD" in the service timezone
+  startMinute Int? // inclusive; null with endMinute null => whole day
+  endMinute   Int? // exclusive
+  capacity    Int
+
+  createdAt DateTime @default(now())
+
+  @@index([serviceId, date])
 }
 
 // ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ export type HoldResult =
   | { ok: false; reason: "unavailable" };
 
 /**
- * Reserve one seat at `startsAt` for `service.holdTtlMinutes`.
+ * Reserve `details.seats` seats at `startsAt` for `service.holdTtlMinutes`.
  *
  * This is the authoritative capacity check — the slot list the customer saw is
  * already stale. Concurrent requests for the same slot are serialised with a
@@ -50,8 +50,10 @@ export async function createHold(
     // Re-run the engine for exactly this instant against fresh usage, so lead
     // time, opening hours, blackouts and capacity are all re-checked.
     const params = await snapshotForHold(tx, service, startsAt, now, release);
+    // Capacity units this hold takes: its seats, or one booking.
+    const units = service.capacityMode === "BOOKINGS" ? 1 : details.seats;
     const offered = computeSlots(params).some(
-      (s) => s.startsAt.getTime() === startsAt.getTime() && s.remaining >= details.seats,
+      (s) => s.startsAt.getTime() === startsAt.getTime() && s.remaining >= units,
     );
     if (!offered) return { ok: false, reason: "unavailable" } as const;
 
@@ -101,6 +103,9 @@ async function snapshotForHold(
   // Same padding as buildSlotParams: buffers can reach past the range.
   const pad = 24 * 60 * 60_000;
   const utc = (d: Date) => Prisma.sql`(${d.toISOString()}::timestamptz AT TIME ZONE 'UTC')`;
+  // PEOPLE mode counts seats; BOOKINGS mode counts rows.
+  const units =
+    service.capacityMode === "BOOKINGS" ? Prisma.sql`COUNT(*)::int` : Prisma.sql`SUM("seats")::int`;
 
   const rows = await tx.$queryRaw<SnapshotRow[]>`
     WITH released AS (
@@ -118,7 +123,7 @@ async function snapshotForHold(
       AND "startsAt" < ${utc(new Date(rangeEnd.getTime() + pad))}
       AND "endsAt" > ${utc(new Date(startsAt.getTime() - pad))}
     UNION ALL
-    SELECT 'hold', "startsAt", NULL, SUM("seats")::int
+    SELECT 'hold', "startsAt", NULL, ${units}
     FROM "SlotHold"
     WHERE "serviceId" = ${service.id}
       AND "consumedAt" IS NULL
@@ -127,7 +132,7 @@ async function snapshotForHold(
       AND "token" IS DISTINCT FROM ${release}
     GROUP BY "startsAt"
     UNION ALL
-    SELECT 'booking', "startsAt", NULL, SUM("seats")::int
+    SELECT 'booking', "startsAt", NULL, ${units}
     FROM "Booking"
     WHERE "serviceId" = ${service.id}
       AND "status" = 'CONFIRMED'
@@ -147,6 +152,7 @@ async function snapshotForHold(
     windows: service.windows,
     blackouts,
     usage,
+    overrides: service.overrides,
     rangeStart: startsAt,
     rangeEnd,
     now,

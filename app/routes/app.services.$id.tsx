@@ -35,6 +35,9 @@ import {
   MAX_UPSELLS,
   minutesToHhMm,
   parseServiceInput,
+  MAX_OVERRIDES,
+  type CapacityModeInput,
+  type OverrideInput,
   type ServiceErrors,
   type ServiceFormInput,
   type WindowInput,
@@ -67,6 +70,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     where: { id: params.id, shopId: shop.id },
     include: {
       availabilityRules: { orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }] },
+      capacityOverrides: { orderBy: [{ date: "asc" }, { startMinute: "asc" }] },
     },
   });
   if (!service) throw new Response("Service not found", { status: 404 });
@@ -95,11 +99,22 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     leadTimeMinutes: String(service.leadTimeMinutes),
     maxAdvanceDays: String(service.maxAdvanceDays),
     capacityPerSlot: String(service.capacityPerSlot),
+    capacityMode: service.capacityMode,
+    minSeatsPerBooking: String(service.minSeatsPerBooking),
+    maxSeatsPerBooking:
+      service.maxSeatsPerBooking === null ? "" : String(service.maxSeatsPerBooking),
     timezone: service.timezone ?? "",
     windows: service.availabilityRules.map((r) => ({
       dayOfWeek: r.dayOfWeek,
       start: minutesToHhMm(r.startMinute),
       end: minutesToHhMm(r.endMinute),
+      capacity: r.capacity === null ? "" : String(r.capacity),
+    })),
+    capacityOverrides: service.capacityOverrides.map((o) => ({
+      date: o.date,
+      start: o.startMinute === null ? "" : minutesToHhMm(o.startMinute),
+      end: o.endMinute === null ? "" : minutesToHhMm(o.endMinute),
+      capacity: String(o.capacity),
     })),
     intakeQuestions: parseQuestions(service.intakeQuestions),
     requireSignature: service.requireSignature,
@@ -179,7 +194,8 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 
   const parsed = parseServiceInput(input);
   if (!parsed.ok) return { ok: false, errors: parsed.errors } satisfies ActionResult;
-  const { windows, intakeQuestions, upsellVariantIds, ...rest } = parsed.data;
+  const { windows, capacityOverrides, intakeQuestions, upsellVariantIds, ...rest } =
+    parsed.data;
   const fields = {
     ...rest,
     intakeQuestions: intakeQuestions as unknown as Prisma.InputJsonValue,
@@ -216,6 +232,13 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       if (windows.length > 0) {
         await tx.availabilityRule.createMany({
           data: windows.map((w) => ({ ...w, serviceId: service.id })),
+        });
+      }
+      // Same for date-specific limits.
+      await tx.capacityOverride.deleteMany({ where: { serviceId: service.id } });
+      if (capacityOverrides.length > 0) {
+        await tx.capacityOverride.createMany({
+          data: capacityOverrides.map((o) => ({ ...o, serviceId: service.id })),
         });
       }
       return service.id;
@@ -256,6 +279,9 @@ function emptyForm(): ServiceFormInput {
     leadTimeMinutes: "120",
     maxAdvanceDays: "60",
     capacityPerSlot: "1",
+    capacityMode: "PEOPLE",
+    minSeatsPerBooking: "1",
+    maxSeatsPerBooking: "",
     timezone: "",
     // Mon–Fri 9–5 is the most common starting point; the merchant edits from here.
     windows: [1, 2, 3, 4, 5].map((dayOfWeek) => ({
@@ -263,6 +289,7 @@ function emptyForm(): ServiceFormInput {
       start: "09:00",
       end: "17:00",
     })),
+    capacityOverrides: [],
     intakeQuestions: [],
     requireSignature: false,
     upsellVariantIds: [],
@@ -361,6 +388,26 @@ export default function ServiceEditor() {
       ...f,
       windows: [...f.windows, { dayOfWeek, start: "09:00", end: "17:00" }],
     }));
+  const updateOverride = (index: number, patch: Partial<OverrideInput>) =>
+    setForm((f) => ({
+      ...f,
+      capacityOverrides: f.capacityOverrides.map((o, i) =>
+        i === index ? { ...o, ...patch } : o,
+      ),
+    }));
+  const addOverride = () =>
+    setForm((f) => ({
+      ...f,
+      capacityOverrides: [
+        ...f.capacityOverrides,
+        { date: "", start: "", end: "", capacity: String(f.capacityPerSlot) },
+      ],
+    }));
+  const removeOverride = (index: number) =>
+    setForm((f) => ({
+      ...f,
+      capacityOverrides: f.capacityOverrides.filter((_, i) => i !== index),
+    }));
   const removeWindow = (index: number) =>
     setForm((f) => ({ ...f, windows: f.windows.filter((_, i) => i !== index) }));
 
@@ -405,6 +452,7 @@ export default function ServiceEditor() {
   );
 
   const duration = Number(form.durationMinutes) || 0;
+  const byBookings = form.capacityMode === "BOOKINGS";
 
   return (
     <Page
@@ -519,13 +567,63 @@ export default function ServiceEditor() {
                       helpText="Setup or clean-up time kept free around each appointment."
                     />
                   </FormLayout.Group>
-                  <NumberField
-                    label="Customers per slot"
-                    value={form.capacityPerSlot}
-                    onChange={set("capacityPerSlot")}
-                    error={errors.capacityPerSlot}
-                    helpText="More than 1 for classes or group sessions."
-                  />
+                </FormLayout>
+              </BlockStack>
+            </Card>
+
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Slot limits
+                </Text>
+                <Text as="p" tone="subdued">
+                  How many can book the same time. You can set a different
+                  limit for some weekly hours or for specific dates below.
+                </Text>
+                <FormLayout>
+                  <FormLayout.Group>
+                    <Select
+                      label="Limit each slot by"
+                      options={[
+                        { label: "Number of people", value: "PEOPLE" },
+                        { label: "Number of bookings", value: "BOOKINGS" },
+                      ]}
+                      value={form.capacityMode}
+                      onChange={(v) => set("capacityMode")(v as CapacityModeInput)}
+                      helpText={
+                        byBookings
+                          ? "A group booking counts once, however many people it's for."
+                          : "A booking for 3 people uses 3 places."
+                      }
+                    />
+                    <NumberField
+                      label={byBookings ? "Bookings per slot" : "People per slot"}
+                      value={form.capacityPerSlot}
+                      onChange={set("capacityPerSlot")}
+                      error={errors.capacityPerSlot}
+                      helpText="More than 1 for classes or group sessions."
+                    />
+                  </FormLayout.Group>
+                  <FormLayout.Group>
+                    <NumberField
+                      label="Minimum people per booking"
+                      value={form.minSeatsPerBooking}
+                      onChange={set("minSeatsPerBooking")}
+                      error={errors.minSeatsPerBooking}
+                    />
+                    <NumberField
+                      label="Maximum people per booking"
+                      value={form.maxSeatsPerBooking ?? ""}
+                      onChange={set("maxSeatsPerBooking")}
+                      error={errors.maxSeatsPerBooking}
+                      placeholder={byBookings ? String(form.minSeatsPerBooking || 1) : "No limit"}
+                      helpText={
+                        byBookings
+                          ? "Leave empty to allow only the minimum."
+                          : "Leave empty to allow up to the places left in the slot."
+                      }
+                    />
+                  </FormLayout.Group>
                 </FormLayout>
               </BlockStack>
             </Card>
@@ -537,7 +635,8 @@ export default function ServiceEditor() {
                 </Text>
                 <Text as="p" tone="subdued">
                   Appointments must fit inside these hours. Buffers may extend
-                  past them.
+                  past them. Set a limit on a row to change how many can book
+                  in those hours; leave it empty to use the slot limit.
                 </Text>
                 {DAY_NAMES.map((dayName, dayOfWeek) => {
                   const rows = form.windows
@@ -574,6 +673,19 @@ export default function ServiceEditor() {
                                 onChange={(end) => updateWindow(index, { end })}
                                 autoComplete="off"
                               />
+                              <div style={{ width: 110 }}>
+                                <TextField
+                                  label={`${dayName} slot limit`}
+                                  labelHidden
+                                  type="number"
+                                  min={1}
+                                  prefix="Limit"
+                                  value={String(w.capacity ?? "")}
+                                  onChange={(capacity) => updateWindow(index, { capacity })}
+                                  placeholder={String(form.capacityPerSlot)}
+                                  autoComplete="off"
+                                />
+                              </div>
                               <Button
                                 icon={DeleteIcon}
                                 variant="tertiary"
@@ -598,6 +710,79 @@ export default function ServiceEditor() {
                     </InlineGrid>
                   );
                 })}
+              </BlockStack>
+            </Card>
+
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Date-specific limits
+                </Text>
+                <Text as="p" tone="subdued">
+                  A different limit on particular dates, for the whole day or
+                  between two times. These replace the weekly limits on that
+                  date.
+                </Text>
+                {form.capacityOverrides.map((o, index) => (
+                  <BlockStack key={index} gap="100">
+                    <InlineStack gap="200" blockAlign="end" wrap>
+                      <TextField
+                        label="Date"
+                        type="date"
+                        value={o.date}
+                        onChange={(date) => updateOverride(index, { date })}
+                        autoComplete="off"
+                      />
+                      <TextField
+                        label="From"
+                        type="time"
+                        value={o.start}
+                        onChange={(start) => updateOverride(index, { start })}
+                        autoComplete="off"
+                      />
+                      <TextField
+                        label="To"
+                        type="time"
+                        value={o.end}
+                        onChange={(end) => updateOverride(index, { end })}
+                        autoComplete="off"
+                      />
+                      <div style={{ width: 110 }}>
+                        <TextField
+                          label="Limit"
+                          type="number"
+                          min={1}
+                          value={String(o.capacity)}
+                          onChange={(capacity) => updateOverride(index, { capacity })}
+                          autoComplete="off"
+                        />
+                      </div>
+                      <Button
+                        icon={DeleteIcon}
+                        variant="tertiary"
+                        accessibilityLabel="Remove date limit"
+                        onClick={() => removeOverride(index)}
+                      />
+                    </InlineStack>
+                    {errors[`capacityOverrides.${index}`] ? (
+                      <InlineError
+                        message={errors[`capacityOverrides.${index}`]}
+                        fieldID={`capacityOverrides.${index}`}
+                      />
+                    ) : null}
+                  </BlockStack>
+                ))}
+                {errors.capacityOverrides ? (
+                  <InlineError message={errors.capacityOverrides} fieldID="capacityOverrides" />
+                ) : null}
+                {form.capacityOverrides.length < MAX_OVERRIDES ? (
+                  <div>
+                    <Button onClick={addOverride}>Add date limit</Button>
+                  </div>
+                ) : null}
+                <Text as="p" tone="subdued" variant="bodySm">
+                  Leave From and To empty to cover the whole day.
+                </Text>
               </BlockStack>
             </Card>
 

@@ -46,7 +46,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     {
       questions: service.questions,
       requireSignature: service.requireSignature,
-      capacityPerSlot: service.geometry.capacityPerSlot,
+      minSeats: service.minSeats,
+      maxSeats: service.maxSeats,
     },
     body,
   );

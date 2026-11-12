@@ -1,11 +1,13 @@
 import { DateTime } from "luxon";
 
 import type {
+  CapacityOverride,
   ComputeSlotsParams,
   Interval,
   ServiceGeometry,
   Slot,
   SlotUsage,
+  WeeklyWindow,
 } from "./types";
 
 const MINUTES_PER_DAY = 1440;
@@ -85,6 +87,57 @@ function buildUsageMap(usage: SlotUsage[]): Map<number, number> {
 }
 
 /**
+ * The limit for a slot starting `minute` minutes after local midnight on
+ * `localDate` ("YYYY-MM-DD"). Most specific wins: a date override (whole day,
+ * or a minute range containing the start), then the weekly window's own
+ * limit, then the service default.
+ */
+export function capacityAt(
+  service: Pick<ServiceGeometry, "capacityPerSlot">,
+  window: Pick<WeeklyWindow, "capacity"> | undefined,
+  overrides: CapacityOverride[] | undefined,
+  localDate: string,
+  minute: number,
+): number {
+  for (const o of overrides ?? []) {
+    if (o.date !== localDate) continue;
+    const from = o.startMinute ?? 0;
+    const to = o.endMinute ?? MINUTES_PER_DAY;
+    if (minute >= from && minute < to) return o.capacity;
+  }
+  return window?.capacity ?? service.capacityPerSlot;
+}
+
+/**
+ * The limit for the slot starting at `startsAt`, without re-checking lead
+ * time or opening hours. The orders webhook uses this when a hold lapsed
+ * during checkout: the slot may now be inside the minimum notice, but the
+ * customer still picked it when it was offered.
+ */
+export function slotCapacity(
+  params: {
+    service: Pick<ServiceGeometry, "capacityPerSlot" | "timezone">;
+    windows: WeeklyWindow[];
+    overrides?: CapacityOverride[];
+  },
+  startsAt: Date,
+): number {
+  const local = DateTime.fromJSDate(startsAt, { zone: params.service.timezone });
+  const minute = local.hour * 60 + local.minute;
+  const dayOfWeek = local.weekday % 7;
+  const window = params.windows.find(
+    (w) => w.dayOfWeek === dayOfWeek && minute >= w.startMinute && minute < w.endMinute,
+  );
+  return capacityAt(
+    params.service,
+    window,
+    params.overrides,
+    local.toFormat("yyyy-MM-dd"),
+    minute,
+  );
+}
+
+/**
  * Compute every bookable slot in [rangeStart, rangeEnd).
  *
  * Pure: no I/O, no clock reads. `now` is injected so tests and the proxy agree.
@@ -96,12 +149,14 @@ export function computeSlots({
   windows,
   blackouts,
   usage,
+  overrides,
   rangeStart,
   rangeEnd,
   now,
 }: ComputeSlotsParams): Slot[] {
-  if (service.durationMinutes <= 0 || service.capacityPerSlot <= 0) return [];
+  if (service.durationMinutes <= 0) return [];
   if (windows.length === 0) return [];
+  const minUnits = Math.max(1, service.minUnitsPerHold ?? 1);
 
   const zone = service.timezone;
   const usageMap = buildUsageMap(usage);
@@ -136,6 +191,7 @@ export function computeSlots({
     const dayOfWeek = day.weekday % 7;
     const dayWindows = windowsByDay.get(dayOfWeek);
     if (!dayWindows) continue;
+    const localDate = day.toFormat("yyyy-MM-dd");
 
     for (const window of dayWindows) {
       if (window.endMinute <= window.startMinute) continue;
@@ -169,11 +225,12 @@ export function computeSlots({
 
         if (blackouts.some((b) => overlaps(blocked, b))) continue;
 
-        const remaining = service.capacityPerSlot - (usageMap.get(key) ?? 0);
-        if (remaining <= 0) continue;
+        const capacity = capacityAt(service, window, overrides, localDate, minute);
+        const remaining = capacity - (usageMap.get(key) ?? 0);
+        if (remaining <= 0 || remaining < minUnits) continue;
 
         seen.add(key);
-        slots.push({ startsAt, endsAt, remaining });
+        slots.push({ startsAt, endsAt, capacity, remaining });
       }
     }
   }

@@ -1,9 +1,11 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { CapacityMode, Prisma, PrismaClient } from "@prisma/client";
+import { DateTime } from "luxon";
 
 import db from "../../db.server";
 import { resolveTimezone } from "../shop.server";
 import { parseQuestions, type IntakeQuestion } from "./details";
 import type {
+  CapacityOverride,
   ComputeSlotsParams,
   Interval,
   ServiceGeometry,
@@ -21,9 +23,88 @@ export interface BookableService {
   holdTtlMinutes: number;
   geometry: ServiceGeometry;
   windows: WeeklyWindow[];
+  /** Date-specific slot limits from yesterday on (service timezone). */
+  overrides: CapacityOverride[];
+  /** PEOPLE: slot limits count seats. BOOKINGS: they count bookings. */
+  capacityMode: CapacityMode;
+  /** Smallest party one booking may be. */
+  minSeats: number;
+  /**
+   * Largest party one booking may be. Null => only the seats left in the slot
+   * limit it (PEOPLE mode; BOOKINGS mode always has a number).
+   */
+  maxSeats: number | null;
   /** Asked in the popup's second step. */
   questions: IntakeQuestion[];
   requireSignature: boolean;
+}
+
+/** The service relations `toBookableService` needs. */
+export const bookableInclude = {
+  shop: { select: { timezone: true, holdTtlMinutes: true } },
+  availabilityRules: true,
+  capacityOverrides: true,
+} as const;
+
+type ServiceRow = Prisma.ServiceGetPayload<{ include: typeof bookableInclude }>;
+
+/** Party-size bounds for a service row, after mode defaults. */
+export function seatLimits(service: {
+  capacityMode: CapacityMode;
+  minSeatsPerBooking: number;
+  maxSeatsPerBooking: number | null;
+}): { minSeats: number; maxSeats: number | null } {
+  const minSeats = Math.max(1, service.minSeatsPerBooking);
+  const maxSeats =
+    service.maxSeatsPerBooking ?? (service.capacityMode === "BOOKINGS" ? minSeats : null);
+  return { minSeats, maxSeats };
+}
+
+export function toBookableService(service: ServiceRow, now: Date = new Date()): BookableService {
+  const timezone = resolveTimezone(service.timezone, service.shop.timezone);
+  const { minSeats, maxSeats } = seatLimits(service);
+  // Overrides for past dates can't matter; keep yesterday for zone edge cases.
+  const fromDate = DateTime.fromJSDate(now, { zone: timezone })
+    .minus({ days: 1 })
+    .toFormat("yyyy-MM-dd");
+
+  return {
+    id: service.id,
+    shopId: service.shopId,
+    title: service.title,
+    holdTtlMinutes: service.shop.holdTtlMinutes,
+    geometry: {
+      durationMinutes: service.durationMinutes,
+      bufferBeforeMinutes: service.bufferBeforeMinutes,
+      bufferAfterMinutes: service.bufferAfterMinutes,
+      slotIntervalMinutes: service.slotIntervalMinutes,
+      leadTimeMinutes: service.leadTimeMinutes,
+      maxAdvanceDays: service.maxAdvanceDays,
+      capacityPerSlot: service.capacityPerSlot,
+      // A slot is only worth showing if the smallest allowed booking fits.
+      minUnitsPerHold: service.capacityMode === "BOOKINGS" ? 1 : minSeats,
+      timezone,
+    },
+    windows: service.availabilityRules.map((r) => ({
+      dayOfWeek: r.dayOfWeek,
+      startMinute: r.startMinute,
+      endMinute: r.endMinute,
+      capacity: r.capacity,
+    })),
+    overrides: service.capacityOverrides
+      .filter((o) => o.date >= fromDate)
+      .map((o) => ({
+        date: o.date,
+        startMinute: o.startMinute,
+        endMinute: o.endMinute,
+        capacity: o.capacity,
+      })),
+    capacityMode: service.capacityMode,
+    minSeats,
+    maxSeats,
+    questions: parseQuestions(service.intakeQuestions),
+    requireSignature: service.requireSignature,
+  };
 }
 
 /**
@@ -43,36 +124,9 @@ export async function loadBookableService(
       active: true,
       shop: { domain: shopDomain, uninstalledAt: null },
     },
-    include: {
-      shop: { select: { timezone: true, holdTtlMinutes: true } },
-      availabilityRules: true,
-    },
+    include: bookableInclude,
   });
-  if (!service) return null;
-
-  return {
-    id: service.id,
-    shopId: service.shopId,
-    title: service.title,
-    holdTtlMinutes: service.shop.holdTtlMinutes,
-    geometry: {
-      durationMinutes: service.durationMinutes,
-      bufferBeforeMinutes: service.bufferBeforeMinutes,
-      bufferAfterMinutes: service.bufferAfterMinutes,
-      slotIntervalMinutes: service.slotIntervalMinutes,
-      leadTimeMinutes: service.leadTimeMinutes,
-      maxAdvanceDays: service.maxAdvanceDays,
-      capacityPerSlot: service.capacityPerSlot,
-      timezone: resolveTimezone(service.timezone, service.shop.timezone),
-    },
-    windows: service.availabilityRules.map((r) => ({
-      dayOfWeek: r.dayOfWeek,
-      startMinute: r.startMinute,
-      endMinute: r.endMinute,
-    })),
-    questions: parseQuestions(service.intakeQuestions),
-    requireSignature: service.requireSignature,
-  };
+  return service ? toBookableService(service) : null;
 }
 
 /**
@@ -111,8 +165,8 @@ export async function buildSlotParams(
         expiresAt: { gt: now },
         startsAt: { gte: rangeStart, lt: rangeEnd },
       },
-      // Seats, not rows: one hold or booking can be for several people.
       _sum: { seats: true },
+      _count: { _all: true },
     }),
     client.booking.groupBy({
       by: ["startsAt"],
@@ -122,13 +176,18 @@ export async function buildSlotParams(
         startsAt: { gte: rangeStart, lt: rangeEnd },
       },
       _sum: { seats: true },
+      _count: { _all: true },
     }),
   ]);
 
   const blackouts: Interval[] = blackoutRows;
+  // PEOPLE mode counts seats (one hold or booking can be several people);
+  // BOOKINGS mode counts rows.
+  const units = (r: { _sum: { seats: number | null }; _count: { _all: number } }) =>
+    service.capacityMode === "BOOKINGS" ? r._count._all : (r._sum.seats ?? 0);
   const usage: SlotUsage[] = [
-    ...holdRows.map((r) => ({ startsAt: r.startsAt, count: r._sum.seats ?? 0 })),
-    ...bookingRows.map((r) => ({ startsAt: r.startsAt, count: r._sum.seats ?? 0 })),
+    ...holdRows.map((r) => ({ startsAt: r.startsAt, count: units(r) })),
+    ...bookingRows.map((r) => ({ startsAt: r.startsAt, count: units(r) })),
   ];
 
   return {
@@ -136,8 +195,22 @@ export async function buildSlotParams(
     windows: service.windows,
     blackouts,
     usage,
+    overrides: service.overrides,
     rangeStart,
     rangeEnd,
     now,
+  };
+}
+
+/** What the storefront widget needs to show and bound the "People" stepper. */
+export function seatRules(service: BookableService): {
+  mode: "people" | "bookings";
+  minSeats: number;
+  maxSeats: number | null;
+} {
+  return {
+    mode: service.capacityMode === "BOOKINGS" ? "bookings" : "people",
+    minSeats: service.minSeats,
+    maxSeats: service.maxSeats,
   };
 }
