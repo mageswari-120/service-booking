@@ -55,14 +55,16 @@ api_version = "2026-10"
   # The booking pipeline. orders/create is the one that actually creates a
   # Booking row; the other two release the slot again.
   #
-  # TEMPORARILY DISABLED: order topics carry protected customer data, and
-  # Shopify refuses to register them until "Protected customer data access"
-  # is filled in for this app (Dev/Partner Dashboard → API access). Re-enable
-  # these three once that form is saved and the orders/create handler exists.
-  # [[webhooks.subscriptions]]
-  # topics = [ "orders/create" ]
-  # uri = "/webhooks/orders/create"
+  # Order topics carry protected customer data: Shopify refuses to register
+  # them until "Protected customer data access" (Name + Email) is saved for
+  # this app in the Dev/Partner Dashboard → API access.
   #
+  # Handled by: app/routes/webhooks.orders.create.tsx (Booking + confirmation email)
+  [[webhooks.subscriptions]]
+  topics = [ "orders/create" ]
+  uri = "/webhooks/orders/create"
+
+  # Not handled yet — re-enable with their route files.
   # [[webhooks.subscriptions]]
   # topics = [ "orders/cancelled" ]
   # uri = "/webhooks/orders/cancelled"

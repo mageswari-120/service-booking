@@ -55,6 +55,20 @@ export function parseQuestions(raw: unknown): IntakeQuestion[] {
   return out.slice(0, MAX_QUESTIONS);
 }
 
+/** Answers as stored on SlotHold/Booking.intakeAnswers (JSON). Lenient. */
+export function parseAnswers(raw: unknown): IntakeAnswer[] {
+  if (!Array.isArray(raw)) return [];
+  const out: IntakeAnswer[] = [];
+  for (const a of raw) {
+    if (!a || typeof a !== "object") continue;
+    const { id, label, value } = a as Record<string, unknown>;
+    if (typeof id !== "string" || typeof label !== "string") continue;
+    if (typeof value !== "string" && typeof value !== "boolean") continue;
+    out.push({ id, label, value });
+  }
+  return out;
+}
+
 export type HoldDetailsResult =
   | { ok: true; seats: number; answers: IntakeAnswer[]; signaturePng: Buffer | null }
   | { ok: false; error: string; field: string };

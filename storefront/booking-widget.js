@@ -414,11 +414,14 @@
       return api("/availability", params)
         .then(function (res) {
           if (seq !== state.seq) return;
-          if (res.status === 404 || !res.data.bookable) {
+          // Only the app's explicit "not a service" answer backs out. A tunnel
+          // that's down, a 5xx or Shopify's HTML error page is a temporary
+          // failure: keep the metafield-driven relabel and retry on open.
+          if (res.data.bookable === false && (res.status === 404 || res.status === 200)) {
             applyBookable(false);
             return;
           }
-          if (res.status !== 200) throw 0;
+          if (res.status !== 200 || !res.data.bookable) throw res.status;
           var d = res.data;
           state.timezone = d.timezone;
           state.month = d.month;
@@ -439,9 +442,10 @@
           renderTimes();
           if (step1El.hidden === false) setStatus("");
         })
-        .catch(function () {
+        .catch(function (status) {
           if (seq !== state.seq) return;
-          setStatus(t("Error"), true);
+          console.warn("[service-booking] availability failed", status);
+          if (dialog.open) setStatus(t("Error"), true);
         });
     }
 
