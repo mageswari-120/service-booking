@@ -22,7 +22,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     orders_requested?: Array<number | string>;
   };
 
-  const orderIds = (body.orders_requested ?? []).map(String);
+  // Shopify sends numeric ids; bookings store the GID (see bookings/create.server.ts).
+  const orderIds = (body.orders_requested ?? []).map((id) =>
+    String(id).startsWith("gid://") ? String(id) : `gid://shopify/Order/${id}`,
+  );
   const email = body.customer?.email ?? undefined;
 
   const filters = [

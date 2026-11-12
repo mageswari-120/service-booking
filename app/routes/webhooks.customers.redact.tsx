@@ -12,6 +12,9 @@ import { authenticate } from "../shopify.server";
  * bookings but keep the rows: the merchant still needs the slot history, and
  * `startsAt` plus the order id are not personal data on their own.
  */
+const toOrderGid = (id: number | string) =>
+  String(id).startsWith("gid://") ? String(id) : `gid://shopify/Order/${id}`;
+
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { shop, topic, payload } = await authenticate.webhook(request);
 
@@ -20,7 +23,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     orders_to_redact?: Array<number | string>;
   };
 
-  const orderIds = (body.orders_to_redact ?? []).map(String);
+  // Shopify sends numeric ids; bookings store the GID (see bookings/create.server.ts).
+  const orderIds = (body.orders_to_redact ?? []).map(toOrderGid);
   const email = body.customer?.email ?? undefined;
 
   // Match on the orders Shopify named, and on the stored email as a fallback —
@@ -39,17 +43,33 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return new Response();
   }
 
-  const { count } = await db.booking.updateMany({
-    where,
-    data: {
-      customerName: null,
-      customerEmail: null,
-      customerPhone: null,
-      // Intake answers are free text and routinely hold personal details.
-      // A Json column needs DbNull for SQL NULL; plain `null` is a type error.
-      intakeAnswers: Prisma.DbNull,
-    },
-  });
+  // The popup's details also live on the SlotHold the booking came from, and a
+  // hold has no customer fields of its own — reach it through holdToken.
+  const holdTokens = (
+    await db.booking.findMany({ where, select: { holdToken: true } })
+  )
+    .map((b) => b.holdToken)
+    .filter((t): t is string => Boolean(t));
+
+  const [{ count }] = await db.$transaction([
+    db.booking.updateMany({
+      where,
+      data: {
+        customerName: null,
+        customerEmail: null,
+        customerPhone: null,
+        // Intake answers are free text and routinely hold personal details.
+        // A Json column needs DbNull for SQL NULL; plain `null` is a type error.
+        intakeAnswers: Prisma.DbNull,
+        // A drawn signature is personal data too.
+        signaturePng: null,
+      },
+    }),
+    db.slotHold.updateMany({
+      where: { token: { in: holdTokens } },
+      data: { intakeAnswers: Prisma.DbNull, signaturePng: null },
+    }),
+  ]);
 
   console.log(`[${topic}] ${shop}: redacted ${count} booking(s)`);
 

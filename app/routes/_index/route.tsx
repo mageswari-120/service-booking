@@ -1,11 +1,16 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { redirect } from "@remix-run/node";
-import { Form, useLoaderData } from "@remix-run/react";
-
-import { login } from "../../shopify.server";
 
 import styles from "./styles.module.css";
 
+/**
+ * Public landing page at the app URL.
+ *
+ * Shopify opens the app with `?shop=…`, which goes straight into the embedded
+ * app (OAuth runs there if needed). There is deliberately no shop-domain form:
+ * App Store requirement 2.3.1 forbids asking merchants to type their
+ * myshopify.com domain — installs must start from a Shopify surface.
+ */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
 
@@ -13,45 +18,36 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     throw redirect(`/app?${url.searchParams.toString()}`);
   }
 
-  return { showForm: Boolean(login) };
+  return null;
 };
 
 export default function App() {
-  const { showForm } = useLoaderData<typeof loader>();
-
   return (
     <div className={styles.index}>
       <div className={styles.content}>
-        <h1 className={styles.heading}>A short heading about [your app]</h1>
+        <h1 className={styles.heading}>Service Booking</h1>
         <p className={styles.text}>
-          A tagline about [your app] that describes your value proposition.
+          Let customers book appointments, classes and services straight from
+          your product pages, and pay through your normal Shopify checkout.
         </p>
-        {showForm && (
-          <Form className={styles.form} method="post" action="/auth/login">
-            <label className={styles.label}>
-              <span>Shop domain</span>
-              <input className={styles.input} type="text" name="shop" />
-              <span>e.g: my-shop-domain.myshopify.com</span>
-            </label>
-            <button className={styles.button} type="submit">
-              Log in
-            </button>
-          </Form>
-        )}
         <ul className={styles.list}>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Bookable services</strong>. Set durations, opening hours,
+            buffers and how many people each slot takes.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Live availability</strong>. Customers only see times that
+            are actually free, and their slot is held while they check out.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Confirmations</strong>. Every paid order becomes a booking
+            and the customer gets a confirmation email.
           </li>
         </ul>
+        <p className={styles.text}>
+          Install Service Booking from the Shopify App Store, then open it from
+          your Shopify admin.
+        </p>
       </div>
     </div>
   );

@@ -4,14 +4,17 @@ import { useFetcher, useLoaderData, useNavigate } from "@remix-run/react";
 import {
   Badge,
   Banner,
+  BlockStack,
   Box,
   Button,
   ButtonGroup,
   Card,
   EmptyState,
   IndexTable,
+  InlineStack,
   Layout,
   Link,
+  List,
   Modal,
   Page,
   Text,
@@ -43,8 +46,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     },
   });
 
+  // Theme editor deep link that adds the "booking" app block
+  // (extensions/booking-widget/blocks/booking.liquid) to the main section of
+  // the product template. Format: addAppBlockId={api_key}/{block handle}.
+  const themeEditorUrl =
+    `https://${session.shop}/admin/themes/current/editor` +
+    `?template=product&addAppBlockId=${process.env.SHOPIFY_API_KEY}/booking&target=mainSection`;
+
   return {
     timezone: shop.timezone,
+    themeEditorUrl,
     services: services.map(({ availabilityRules, ...s }) => ({
       ...s,
       days: summariseDays(availabilityRules.map((r) => r.dayOfWeek)),
@@ -66,7 +77,7 @@ function summariseDays(days: number[]): string {
 }
 
 export default function Services() {
-  const { services, timezone } = useLoaderData<typeof loader>();
+  const { services, timezone, themeEditorUrl } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
   const shopify = useAppBridge();
 
@@ -113,6 +124,40 @@ export default function Services() {
             </Banner>
           </Layout.Section>
         ) : null}
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">
+                Add the booking widget to your theme
+              </Text>
+              <List type="number">
+                <List.Item>
+                  Create a service below and link it to the product customers
+                  will book.
+                </List.Item>
+                <List.Item>
+                  Click <b>Add widget to theme</b>. The theme editor opens on
+                  your product template with the <b>Book a time</b> block
+                  already added.
+                </List.Item>
+                <List.Item>
+                  Move the block where you want it (usually under the price),
+                  adjust the button label and colour, then click <b>Save</b>.
+                </List.Item>
+              </List>
+              <Text as="p" tone="subdued">
+                To add it by hand: Online Store → Themes → Customize → open a
+                product page → Add block → Apps → Book a time. The widget only
+                appears on products linked to an active service.
+              </Text>
+              <InlineStack>
+                <Button url={themeEditorUrl} target="_top" variant="primary">
+                  Add widget to theme
+                </Button>
+              </InlineStack>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
         <Layout.Section>
           <Card padding="0">
             {services.length === 0 ? (

@@ -2,7 +2,9 @@
 #
 # Identity fields (client_id, application_url, auth.redirect_urls) are managed
 # by the CLI: `shopify app dev` rewrites the URLs to the tunnel on every run.
-# Do not hand-edit them. Everything below them — scopes, the app proxy and the
+# `shopify app deploy` does NOT — it pushes whatever is written here. Deploy to
+# production from a separate shopify.app.production.toml whose application_url,
+# redirect_urls and [app_proxy].url point at the real HTTPS host. Everything below them — scopes, the app proxy and the
 # webhook list — is ours to maintain.
 #
 # Never answer "yes" when `config link` offers to replace this file with the
@@ -16,15 +18,18 @@ embedded = true
 [access_scopes]
 # read/write_products  — create and link the product that backs each service
 # read_orders          — orders/create payload, to turn a paid order into a booking
-# write_draft_orders   — $0 bookings when Shop.freeBookingMode = DRAFT_ORDER
-# read/write_customers — match the booker and tag their customer record
 # write_app_proxy      — required by Shopify for any app that declares [app_proxy]
 #
-# Reading customer email and name from an order is Protected Customer Data, so
-# the app needs that approval at review. It is unavoidable for a booking app —
-# a confirmation email has to go somewhere — but keep the field list minimal.
+# Request only what the code uses (App Store requirement 3.2). Add
+# write_draft_orders / read+write_customers back only together with the code
+# that needs them.
+#
+# Reading customer name, email and phone from an order is Protected Customer
+# Data, so the app needs that approval at review (Partner Dashboard → API
+# access → Protected customer data: Name, Email, Phone). It is unavoidable for
+# a booking app — a confirmation email has to go somewhere.
 # https://shopify.dev/docs/apps/launch/protected-customer-data
-scopes = "read_products,write_products,read_orders,write_draft_orders,read_customers,write_customers,write_app_proxy"
+scopes = "read_products,write_products,read_orders,write_app_proxy"
 
 [auth]
 redirect_urls = [ "https://example.com/api/auth" ]
@@ -32,7 +37,7 @@ redirect_urls = [ "https://example.com/api/auth" ]
 [app_proxy]
 # Storefront-visible path is <shop>/apps/booking/*, which the theme app
 # extension fetches for availability. The CLI rewrites `url` to the tunnel
-# during `shopify app dev` and to the production host on deploy.
+# during `shopify app dev` only; set the production host in the production toml.
 url = "https://example.com/proxy"
 subpath = "booking"
 prefix = "apps"
@@ -88,5 +93,4 @@ api_version = "2026-10"
   compliance_topics = [ "shop/redact" ]
 
 [build]
-include_config_on_deploy = true
 automatically_update_urls_on_dev = true
