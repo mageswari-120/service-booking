@@ -1,0 +1,57 @@
+# PRODUCTION config for Service Booking — the app hosted on Render.
+#
+# Release with:  npm run build:widget && shopify app deploy --config production
+#
+# Keep scopes, app proxy and webhooks identical to shopify.app.toml (the dev
+# config); only the URLs differ. Do not let `shopify app dev` use this file.
+
+client_id = "bb2a5e647aa050c1e2059f6fe8bc367d"
+name = "service-booking"
+application_url = "https://service-booking-aqk7.onrender.com"
+embedded = true
+
+[access_scopes]
+scopes = "read_products,write_products,read_orders,write_app_proxy"
+
+[auth]
+redirect_urls = [
+  "https://service-booking-aqk7.onrender.com/auth/callback",
+  "https://service-booking-aqk7.onrender.com/auth/shopify/callback",
+  "https://service-booking-aqk7.onrender.com/api/auth/callback",
+  "https://service-booking-aqk7.onrender.com/api/auth"
+]
+
+[app_proxy]
+url = "https://service-booking-aqk7.onrender.com/proxy"
+subpath = "booking"
+prefix = "apps"
+
+[webhooks]
+api_version = "2026-10"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+  [[webhooks.subscriptions]]
+  topics = [ "orders/create" ]
+  uri = "/webhooks/orders/create"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/data_request"
+  compliance_topics = [ "customers/data_request" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/redact"
+  compliance_topics = [ "customers/redact" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/shop/redact"
+  compliance_topics = [ "shop/redact" ]
+
+[build]
+automatically_update_urls_on_dev = false
