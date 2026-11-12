@@ -178,7 +178,9 @@
       if (!answers) return;
       busy = true;
       ctx.addBtn.disabled = true;
-      ctx.setStatus(t("Loading"));
+      var label = ctx.addBtn.textContent;
+      ctx.addBtn.textContent = t("Adding") || label;
+      ctx.setStatus("");
       ctx.api("/hold", null, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -208,6 +210,7 @@
         .then(function () {
           busy = false;
           ctx.addBtn.disabled = false;
+          ctx.addBtn.textContent = label;
         });
     }
 
@@ -309,8 +312,17 @@
       empty: function () {
         return !drawn;
       },
+      /** Exported at 1× (CSS pixels): a smaller upload on high-DPI screens. */
       png: function () {
-        return drawn ? canvas.toDataURL("image/png") : undefined;
+        if (!drawn) return undefined;
+        var w = canvas.clientWidth;
+        var h = canvas.clientHeight;
+        if (!w || !h || canvas.width === w) return canvas.toDataURL("image/png");
+        var out = document.createElement("canvas");
+        out.width = w;
+        out.height = h;
+        out.getContext("2d").drawImage(canvas, 0, 0, w, h);
+        return out.toDataURL("image/png");
       },
     };
   }

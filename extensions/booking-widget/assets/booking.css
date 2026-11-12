@@ -443,6 +443,35 @@
   cursor: default;
 }
 
+/* Placeholder grid while the first /availability request is in flight. */
+.sb-cal__day--skeleton {
+  display: block;
+  cursor: default;
+  animation: sb-pulse 1.2s ease-in-out infinite;
+}
+
+.sb-cal__title--skeleton {
+  display: block;
+  width: 8rem;
+  height: 1em;
+  border-radius: 0.3rem;
+  background: var(--sb-soft);
+  animation: sb-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes sb-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-cal__day--skeleton,
+  .sb-cal__title--skeleton {
+    animation: none;
+  }
+}
+
 .sb-cal__day:not(:disabled):hover {
   background: rgba(0, 0, 0, 0.1);
 }

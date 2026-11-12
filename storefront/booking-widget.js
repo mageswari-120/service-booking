@@ -61,6 +61,8 @@
       signature: false,
       pick: null, // the slot chosen in step 1
       seq: 0,
+      loading: null, // the /availability request in flight, if any
+      wantDay: false, // popup opened before data came: pick a day on arrival
       h24: readHourPref(),
     };
 
@@ -201,9 +203,13 @@
       showStep1();
       loadStep2(); // prefetch: picking a time should feel instant
       if (!state.month) {
-        // Background load not back yet (or failed): load now, picking a day.
         setStatus(t("Loading"));
-        loadMonth(null, true);
+        renderSkeleton();
+        state.wantDay = true;
+        // The page-load prefetch is usually still in flight: wait for it
+        // rather than starting over (a new request would discard its answer).
+        // Only when it failed or never ran, load now.
+        if (!state.loading) loadMonth(null, true);
       } else {
         // Show the prefetched dates and times at once, then refresh them
         // quietly so the popup doesn't offer times taken since page load.
@@ -352,6 +358,29 @@
       if (!state.days.length) calEl.appendChild(el("p", { class: "sb-muted", text: t("NoDates") }));
     }
 
+    /** A greyed month grid so the popup has its size before the dates arrive. */
+    function renderSkeleton() {
+      if (calEl.firstChild) return;
+      var utc = { timeZone: "UTC" };
+      var dow = new Intl.DateTimeFormat(locale, Object.assign({ weekday: "short" }, utc));
+      var grid = el("div", { class: "sb-cal__grid", "aria-hidden": "true" });
+      for (var i = 0; i < 7; i++) {
+        grid.appendChild(el("span", {
+          class: "sb-cal__dow",
+          text: dow.format(new Date(Date.UTC(2023, 0, 1 + ((i + weekStart) % 7)))),
+        }));
+      }
+      for (var j = 0; j < 35; j++) {
+        grid.appendChild(el("span", { class: "sb-cal__day sb-cal__day--skeleton" }));
+      }
+      calEl.appendChild(el("div", { class: "sb-cal__head", "aria-hidden": "true" }, [
+        el("span", { class: "sb-cal__nav" }),
+        el("span", { class: "sb-cal__title--skeleton" }),
+        el("span", { class: "sb-cal__nav" }),
+      ]));
+      calEl.appendChild(grid);
+    }
+
     function renderTimes() {
       timesEl.textContent = "";
       if (!state.date) return;
@@ -411,7 +440,10 @@
       var seq = ++state.seq;
       var params = { variant: state.variantId };
       if (month) params.month = month;
-      return api("/availability", params)
+      var done = function () {
+        if (seq === state.seq) state.loading = null;
+      };
+      state.loading = api("/availability", params)
         .then(function (res) {
           if (seq !== state.seq) return;
           // Only the app's explicit "not a service" answer backs out. A tunnel
@@ -436,7 +468,8 @@
           applyBookable(true);
           $("[data-sb-zone]").textContent = t("Timezone", { zone: d.timezone });
           if (state.date && state.date.slice(0, 7) !== d.month) state.date = null;
-          if (pickDay && !state.date && d.days.length) state.date = d.days[0];
+          if ((pickDay || state.wantDay) && !state.date && d.days.length) state.date = d.days[0];
+          state.wantDay = false;
           renderCalendar();
           if (state.date) return loadSlots();
           renderTimes();
@@ -446,7 +479,9 @@
           if (seq !== state.seq) return;
           console.warn("[service-booking] availability failed", status);
           if (dialog.open) setStatus(t("Error"), true);
-        });
+        })
+        .then(done, done);
+      return state.loading;
     }
 
     function selectDate(date) {
@@ -473,8 +508,11 @@
       var id = input && input.value ? String(input.value) : state.variantId;
       if (id === state.variantId) return syncLabel();
       state.variantId = id;
-      state.date = state.month = state.slots = state.pick = null;
-      state.seq++; 
+      state.date = state.month = state.slots = state.pick = state.loading = null;
+      state.wantDay = false;
+      state.seq++;
+      calEl.textContent = "";
+      timesEl.textContent = "";
       if (dialog.open) close();
       setStatus("");
       start();

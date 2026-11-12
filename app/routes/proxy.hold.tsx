@@ -16,6 +16,7 @@ import { createHold } from "../lib/holds/holds.server";
  */
 export const action = async ({ request }: ActionFunctionArgs) => {
   if (request.method !== "POST") return proxyJson({ error: "Method not allowed" }, 405);
+  const t0 = performance.now();
 
   const shop = await proxyShop(request);
 
@@ -52,15 +53,29 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (!details.ok) return proxyJson({ error: details.error, field: details.field }, 400);
 
   const release = typeof body.release === "string" ? body.release : null;
+  const holdStart = performance.now();
   const result = await createHold(service, startsAt, release, details);
+  const timing = `service;dur=${(holdStart - t0).toFixed(0)}, hold;dur=${(performance.now() - holdStart).toFixed(0)}`;
   if (!result.ok) {
-    return proxyJson({ error: "That time was just taken. Please pick another." }, 409);
+    return withTiming(
+      proxyJson({ error: "That time was just taken. Please pick another." }, 409),
+      timing,
+    );
   }
 
-  return proxyJson({
-    token: result.token,
-    start: startsAt.toISOString(),
-    seats: details.seats,
-    expiresAt: result.expiresAt.toISOString(),
-  });
+  return withTiming(
+    proxyJson({
+      token: result.token,
+      start: startsAt.toISOString(),
+      seats: details.seats,
+      expiresAt: result.expiresAt.toISOString(),
+    }),
+    timing,
+  );
 };
+
+/** DevTools → Network → Timing shows where the hold's time went. */
+function withTiming(res: Response, timing: string): Response {
+  res.headers.set("Server-Timing", timing);
+  return res;
+}
