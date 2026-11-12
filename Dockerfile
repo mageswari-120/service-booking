@@ -1,4 +1,6 @@
-FROM node:20-alpine
+# Node 22: .npmrc has engine-strict=true and @whatwg-node/disposablestack@0.1.0
+# requires node >=22.15, so Node 20 fails at npm prune.
+FROM node:22-alpine
 RUN apk add --no-cache openssl
 
 EXPOSE 3000
