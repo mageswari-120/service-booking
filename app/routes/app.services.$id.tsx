@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Divider,
   FormLayout,
   InlineError,
   InlineGrid,
@@ -24,14 +25,21 @@ import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { getOrCreateShop } from "../lib/shop.server";
 import {
+  fetchProductTitles,
   fetchVariant,
   markVariantAsService,
+  setProductAddon,
+  setVariantAddonCard,
   setVariantBookable,
   setVariantUpsells,
 } from "../lib/services/shopify.server";
 import { parseQuestions, type IntakeQuestion } from "../lib/booking/details";
 import {
   DAY_NAMES,
+  MAX_ADDON_BADGE,
+  MAX_ADDON_DESCRIPTION,
+  MAX_ADDON_LABEL,
+  MAX_ADDON_PRODUCTS,
   MAX_UPSELLS,
   minutesToHhMm,
   parseServiceInput,
@@ -62,6 +70,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       timezones,
       variantLabel: null as string | null,
       upsellLabels: {} as Record<string, string>,
+      addonLabels: {} as Record<string, string>,
       form: emptyForm(),
     };
   }
@@ -78,9 +87,15 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   // Show the live product name; fall back to the stored title if the product
   // has since been deleted in Shopify.
   const upsellVariantIds = stringList(service.upsellVariantIds);
-  const [variant, ...upsells] = await Promise.all(
-    [service.shopifyVariantId, ...upsellVariantIds].map((id) => fetchVariant(admin, id)),
-  );
+  const addonProductIds = stringList(service.addonProductIds);
+  const [addonTitles, [variant, ...upsells]] = await Promise.all([
+    fetchProductTitles(admin, addonProductIds),
+    Promise.all(
+      [service.shopifyVariantId, ...upsellVariantIds].map((id) => fetchVariant(admin, id)),
+    ),
+  ]);
+  const addonLabels: Record<string, string> = {};
+  for (const id of addonProductIds) addonLabels[id] = addonTitles[id] ?? "Product not found";
   const upsellLabels: Record<string, string> = {};
   upsellVariantIds.forEach((id, i) => {
     upsellLabels[id] = upsells[i]?.displayName ?? "Product not found";
@@ -119,6 +134,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     intakeQuestions: parseQuestions(service.intakeQuestions),
     requireSignature: service.requireSignature,
     upsellVariantIds,
+    addonProductIds,
+    addonLabel: service.addonLabel ?? "",
+    addonDescription: service.addonDescription ?? "",
+    addonBadge: service.addonBadge ?? "",
   };
 
   return {
@@ -127,6 +146,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     timezones,
     variantLabel: variant?.displayName ?? `${service.title} (product not found)`,
     upsellLabels,
+    addonLabels,
     form,
   };
 };
@@ -149,6 +169,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           select: {
             id: true,
             shopifyVariantId: true,
+            addonProductIds: true,
             _count: { select: { bookings: true } },
           },
         });
@@ -170,6 +191,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     await db.service.delete({ where: { id: existing.id } });
     // Best effort: a stale flag only costs a proxy check on the storefront.
     await setVariantBookable(admin, existing.shopifyVariantId, false);
+    await syncAddonProducts(admin, stringList(existing.addonProductIds), [], null);
     return redirect("/app");
   }
 
@@ -194,12 +216,19 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 
   const parsed = parseServiceInput(input);
   if (!parsed.ok) return { ok: false, errors: parsed.errors } satisfies ActionResult;
-  const { windows, capacityOverrides, intakeQuestions, upsellVariantIds, ...rest } =
-    parsed.data;
+  const {
+    windows,
+    capacityOverrides,
+    intakeQuestions,
+    upsellVariantIds,
+    addonProductIds,
+    ...rest
+  } = parsed.data;
   const fields = {
     ...rest,
     intakeQuestions: intakeQuestions as unknown as Prisma.InputJsonValue,
     upsellVariantIds,
+    addonProductIds,
   };
 
   const shopifyError =
@@ -210,6 +239,18 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return {
       ok: false,
       errors: { shopifyVariantId: `Shopify rejected the update: ${shopifyError}` },
+    } satisfies ActionResult;
+  }
+  // The add-on card's wording, rendered by the theme block in Liquid.
+  const cardError = await setVariantAddonCard(admin, variant.variantId, {
+    label: fields.addonLabel,
+    description: fields.addonDescription,
+    badge: fields.addonBadge,
+  });
+  if (cardError) {
+    return {
+      ok: false,
+      errors: { addonLabel: `Shopify rejected the wording: ${cardError}` },
     } satisfies ActionResult;
   }
   // The popup's add-ons, rendered by the theme block in Liquid.
@@ -262,9 +303,43 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     await setVariantUpsells(admin, existing.shopifyVariantId, []);
   }
 
+  // Product pages offering this service as an add-on ("On the page" block).
+  // A paused service is taken off them; the list is kept for when it resumes.
+  const addonError = await syncAddonProducts(
+    admin,
+    existing ? stringList(existing.addonProductIds) : [],
+    fields.active ? addonProductIds : [],
+    variant.variantId,
+  );
+  if (addonError) {
+    return {
+      ok: false,
+      errors: { addonProductIds: `Shopify rejected the products: ${addonError}` },
+    } satisfies ActionResult;
+  }
+
   if (!existing) return redirect(`/app/services/${serviceId}`);
   return { ok: true, variantLabel: variant.displayName } satisfies ActionResult;
 };
+
+/**
+ * Point each product in `next` at the service variant, and clear the add-on
+ * from products in `previous` that are no longer listed. Returns the first
+ * Shopify error, or null.
+ */
+async function syncAddonProducts(
+  admin: Parameters<typeof setProductAddon>[0],
+  previous: string[],
+  next: string[],
+  serviceVariantId: string | null,
+): Promise<string | null> {
+  const removed = previous.filter((id) => !next.includes(id));
+  const results = await Promise.all([
+    ...removed.map((id) => setProductAddon(admin, id, null)),
+    ...(serviceVariantId ? next.map((id) => setProductAddon(admin, id, serviceVariantId)) : []),
+  ]);
+  return results.find((e) => e) ?? null;
+}
 
 function emptyForm(): ServiceFormInput {
   return {
@@ -293,6 +368,10 @@ function emptyForm(): ServiceFormInput {
     intakeQuestions: [],
     requireSignature: false,
     upsellVariantIds: [],
+    addonProductIds: [],
+    addonLabel: "",
+    addonDescription: "",
+    addonBadge: "",
   };
 }
 
@@ -323,12 +402,14 @@ export default function ServiceEditor() {
   const [form, setForm] = useState<ServiceFormInput>(loaderData.form);
   const [variantLabel, setVariantLabel] = useState(loaderData.variantLabel);
   const [upsellLabels, setUpsellLabels] = useState(loaderData.upsellLabels);
+  const [addonLabels, setAddonLabels] = useState(loaderData.addonLabels);
 
   // A save that redirects (create) reloads the loader; resync from it.
   useEffect(() => {
     setForm(loaderData.form);
     setVariantLabel(loaderData.variantLabel);
     setUpsellLabels(loaderData.upsellLabels);
+    setAddonLabels(loaderData.addonLabels);
   }, [loaderData]);
 
   const saving = fetcher.state !== "idle" && fetcher.formData?.get("intent") === "save";
@@ -442,6 +523,29 @@ export default function ServiceEditor() {
   };
   const removeUpsell = (id: string) =>
     setForm((f) => ({ ...f, upsellVariantIds: f.upsellVariantIds.filter((v) => v !== id) }));
+
+  const addonIds = form.addonProductIds ?? [];
+  const pickAddonProducts = async () => {
+    const selection = (await shopify.resourcePicker({
+      type: "product",
+      action: "select",
+      multiple: MAX_ADDON_PRODUCTS,
+      selectionIds: addonIds.map((id) => ({ id })),
+    })) as { id: string; title?: string }[] | undefined;
+    if (!selection) return;
+    const picked = selection.filter((p) => p.id !== form.shopifyProductId);
+    setAddonLabels((labels) => {
+      const next = { ...labels };
+      for (const p of picked) next[p.id] = p.title ?? "Selected product";
+      return next;
+    });
+    setForm((f) => ({ ...f, addonProductIds: picked.map((p) => p.id) }));
+  };
+  const removeAddonProduct = (id: string) =>
+    setForm((f) => ({
+      ...f,
+      addonProductIds: (f.addonProductIds ?? []).filter((p) => p !== id),
+    }));
 
   const timezoneOptions = useMemo(
     () => [
@@ -894,6 +998,81 @@ export default function ServiceEditor() {
                     {form.upsellVariantIds.length ? "Change products" : "Choose products"}
                   </Button>
                 </div>
+              </BlockStack>
+            </Card>
+
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Offer as an add-on on
+                </Text>
+                <Text as="p" tone="subdued">
+                  On these products&apos; pages, the “Book a time” block set to
+                  “On the page” shows this service as an add-on with its
+                  calendar, and adds both to the cart. A product offers one
+                  add-on service: choosing it here replaces any other.
+                </Text>
+                {addonIds.map((id) => (
+                  <InlineStack key={id} gap="200" blockAlign="center" align="space-between">
+                    <Text as="span">{addonLabels[id] ?? "Selected product"}</Text>
+                    <Button
+                      icon={DeleteIcon}
+                      variant="tertiary"
+                      accessibilityLabel="Remove product"
+                      onClick={() => removeAddonProduct(id)}
+                    />
+                  </InlineStack>
+                ))}
+                {errors.addonProductIds ? (
+                  <InlineError message={errors.addonProductIds} fieldID="addonProductIds" />
+                ) : null}
+                <div>
+                  <Button onClick={pickAddonProducts}>
+                    {addonIds.length ? "Change products" : "Choose products"}
+                  </Button>
+                </div>
+
+                <Divider />
+
+                <Text as="h3" variant="headingSm">
+                  Card wording
+                </Text>
+                <Text as="p" tone="subdued">
+                  How the add-on reads on those product pages. Leave blank to
+                  use this service&apos;s own product title and description.
+                </Text>
+                <TextField
+                  label="Checkbox label"
+                  value={form.addonLabel ?? ""}
+                  onChange={set("addonLabel")}
+                  autoComplete="off"
+                  maxLength={MAX_ADDON_LABEL}
+                  showCharacterCount
+                  placeholder={`Add ${form.title || "this service"}`}
+                  error={errors.addonLabel}
+                />
+                <TextField
+                  label="Description"
+                  value={form.addonDescription ?? ""}
+                  onChange={set("addonDescription")}
+                  autoComplete="off"
+                  multiline={2}
+                  maxLength={MAX_ADDON_DESCRIPTION}
+                  showCharacterCount
+                  placeholder="20-minute video call with a certified nutritionist."
+                  error={errors.addonDescription}
+                />
+                <TextField
+                  label="Badge"
+                  value={form.addonBadge ?? ""}
+                  onChange={set("addonBadge")}
+                  autoComplete="off"
+                  maxLength={MAX_ADDON_BADGE}
+                  showCharacterCount
+                  helpText="A short chip beside the label, e.g. Recommended. Blank hides it."
+                  placeholder="Recommended"
+                  error={errors.addonBadge}
+                />
               </BlockStack>
             </Card>
           </BlockStack>

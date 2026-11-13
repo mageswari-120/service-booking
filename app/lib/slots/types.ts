@@ -84,4 +84,10 @@ export interface ComputeSlotsParams {
   /** Exclusive UTC upper bound of the query range. */
   rangeEnd: Date;
   now: Date;
+  /**
+   * Also return slots that can't take a booking (full, or fewer places left
+   * than one booking needs), with `remaining: 0`, so the storefront can show
+   * them as booked out. Display only: never use this for validation.
+   */
+  includeFull?: boolean;
 }

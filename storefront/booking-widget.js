@@ -6,6 +6,9 @@
  *
  * Service Booking — "Select a time" on the theme's button + popup.
  *
+ * This is the block's "In a popup" display. "On the page" renders a different
+ * root ([data-sb-addon], an add-on card) driven by booking-addon.js instead.
+ *
  * Flow: the theme's add-to-cart is relabelled "Select a time" for bookable
  * services (known at render from a variant metafield, confirmed through the
  * app proxy) → popup step 1: month calendar + the chosen day's times (a whole
@@ -75,6 +78,11 @@
         text = text.replace("__" + k.toUpperCase() + "__", vars[k]);
       });
       return text;
+    }
+
+    /** Is the popup in front of the customer? */
+    function shown() {
+      return !!(dialog && dialog.open);
     }
 
     function setStatus(text, isError) {
@@ -189,9 +197,21 @@
       if (want && node.nodeValue !== want && node.nodeValue.trim() !== want) node.nodeValue = want;
     }
 
+    /** Drop this instance's page-level listeners and timer once it is gone. */
+    var pollId = 0;
+    function detach() {
+      document.removeEventListener("submit", guard, true);
+      document.removeEventListener("click", guard, true);
+      if (pollId) pollId = clearInterval(pollId);
+    }
+
     // For a bookable service the theme's add-to-cart opens our popup instead:
     // the booking (with its details) is added to the cart from there.
     function guard(event) {
+      // A theme that re-renders the section leaves this root detached and a
+      // fresh one in charge: these listeners and the poll below would
+      // otherwise pile up, one set per re-render, for the whole visit.
+      if (!root.isConnected) return detach();
       if (!form || !state.bookable) return;
       var target = event.target;
       var hit = event.type === "submit"
@@ -200,6 +220,8 @@
           target.closest('[type="submit"], [name="add"]') &&
           (form.contains(target) || target.closest('[form="' + form.id + '"]'));
       if (!hit) return;
+      // A bookable variant must never go through the theme's form: that would
+      // add the service to the cart with no appointment on it.
       event.preventDefault();
       event.stopImmediatePropagation();
       open();
@@ -212,7 +234,7 @@
     // ---------------------------------------------------------------------
 
     function open() {
-      if (!dialog.open) dialog.showModal();
+      if (dialog && !dialog.open) dialog.showModal();
       showStep1();
       loadStep2(); // prefetch: picking a time should feel instant
       if (!state.month) {
@@ -232,15 +254,17 @@
     }
 
     function close() {
-      dialog.close();
+      if (dialog) dialog.close();
     }
 
     triggerBtn.addEventListener("click", open);
-    $("[data-sb-close]").addEventListener("click", close);
-    // A click on the backdrop lands on the <dialog> itself.
-    dialog.addEventListener("click", function (e) {
-      if (e.target === dialog) close();
-    });
+    if (dialog) {
+      $("[data-sb-close]").addEventListener("click", close);
+      // A click on the backdrop lands on the <dialog> itself.
+      dialog.addEventListener("click", function (e) {
+        if (e.target === dialog) close();
+      });
+    }
 
     function showStep1() {
       step1El.hidden = false;
@@ -256,7 +280,7 @@
       setStatus(t("Loading"));
       loadStep2().then(
         function () {
-          if (state.pick !== slot || !dialog.open) return;
+          if (state.pick !== slot || !shown()) return;
           setStatus("");
           step1El.hidden = true;
           detailsEl.hidden = false;
@@ -431,6 +455,8 @@
           type: "button",
           class: "sb-time",
           "aria-pressed": String(!!state.pick && state.pick.start === slot.start),
+          // Booked out: shown struck through (/availability sends them), never picked.
+          disabled: slot.remaining > 0 ? false : "",
           onclick: function () {
             showDetails(slot);
           },
@@ -492,7 +518,7 @@
         .catch(function (status) {
           if (seq !== state.seq) return;
           console.warn("[service-booking] availability failed", status);
-          if (dialog.open) setStatus(t("Error"), true);
+          if (shown()) setStatus(t("Error"), true);
         })
         .then(done, done);
       return state.loading;
@@ -527,14 +553,17 @@
       state.seq++;
       calEl.textContent = "";
       timesEl.textContent = "";
-      if (dialog.open) close();
+      if (dialog && dialog.open) close();
       setStatus("");
       start();
     }
 
     if (form) {
       form.addEventListener("change", checkVariant);
-      setInterval(checkVariant, 750);
+      pollId = setInterval(function () {
+        if (!root.isConnected) return detach();
+        checkVariant();
+      }, 750);
     }
 
     // Let the page paint with the theme's original button first.
@@ -573,4 +602,34 @@
   else boot();
   // Theme editor: re-init when the merchant adds or moves the block.
   document.addEventListener("shopify:section:load", boot);
+
+  // Many themes re-render the product section on variant change (Section
+  // Rendering API) by swapping its HTML: scripts in it don't run again, so
+  // set up any new booking roots — ours and booking-addon.js's — once per frame.
+  var SB_ROOTS = "[data-sb-booking],[data-sb-addon]";
+  function addsABookingRoot(nodes) {
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (n.nodeType === 1 && (n.matches(SB_ROOTS) || n.querySelector(SB_ROOTS))) return true;
+    }
+    return false;
+  }
+  var queued = false;
+  new MutationObserver(function (records) {
+    if (queued) return;
+    // Only when a booking root was actually inserted. Testing the added nodes
+    // is cheap; re-scanning the whole document every frame is not, and on a
+    // page with its own moving parts (carousels, drawers, lazy sections) this
+    // observer would otherwise run flat out for the whole visit.
+    for (var i = 0; i < records.length; i++) {
+      if (!addsABookingRoot(records[i].addedNodes)) continue;
+      queued = true;
+      requestAnimationFrame(function () {
+        queued = false;
+        boot();
+        if (window.__sbAddon) window.__sbAddon();
+      });
+      return;
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true });
 })();

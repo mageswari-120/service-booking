@@ -1,9 +1,16 @@
-/* Booking button + popup. Inherits the theme's font and text colour; the
-   block's accent colour marks the button, selected day and selected time. */
+/* Booking calendar: a popup ("In a popup") or an add-on card ("On the page"). Inherits the
+   theme's font and text colour; the accent marks the button, the selected day
+   and the selected time.
+
+   The accent and radius default to the theme's own button tokens (Dawn and
+   most Online Store 2.0 themes publish these as RGB triplets), falling back to
+   black and a modest radius elsewhere. booking.liquid overrides --sb-accent
+   inline only when the merchant chooses a custom colour. */
 
 .sb-booking {
-  --sb-accent: #000;
-  --sb-on-accent: #fff;
+  --sb-accent: rgb(var(--color-primary-button-bg, var(--color-button, 0 0 0)));
+  --sb-on-accent: rgb(var(--color-primary-button-text, var(--color-button-text, 255 255 255)));
+  --sb-radius: var(--btn-border-radius, var(--buttons-radius, 0.5rem));
   --sb-bg: #fff;
   --sb-fg: #1a1a1a;
   --sb-border: rgba(0, 0, 0, 0.14);
@@ -33,7 +40,7 @@
   min-height: 3rem;
   padding: 0.75rem 1.25rem;
   border: 0;
-  border-radius: 0.5rem;
+  border-radius: var(--sb-radius);
   background: var(--sb-accent);
   color: var(--sb-on-accent);
   font: inherit;
@@ -43,6 +50,431 @@
 
 .sb-trigger[hidden] {
   display: none;
+}
+
+/* --- On the page: add-on card (booking-addon.js) ------------------------ */
+
+/* A service offered on another product's page: "Add <service>" with a
+   checkbox, then a calendar + times, collapsing to "Your appointment" once a
+   time is picked. Laid out by the card's own width (container queries), since
+   product columns are narrow even on wide screens. */
+
+.sb-addon {
+  /* Header tint: the block's "Add-on header colour" (inline style) wins; else
+     a light wash of the accent, readable on any theme. (Theme colour tokens
+     vary too much: a "secondary" colour is light blue on one theme, navy on
+     the next.) */
+  --sb-tint: color-mix(in srgb, var(--sb-accent) 8%, #fff);
+  container-type: inline-size;
+  border: 1px solid var(--sb-accent);
+  border-radius: var(--sb-radius);
+  background: var(--sb-bg);
+  color: var(--sb-fg);
+  overflow: hidden;
+}
+
+/* Themes commonly style checkboxes with an absolutely positioned ::before
+   holding the tick. Ours are position: static, so `inset: 0` on that pseudo
+   resolves against whatever ancestor happens to be positioned — on Elegance
+   it measured 602 x 2794 px. A pseudo-element hit-tests as its owner, so that
+   sheet swallowed every click in the card and handed it to the checkbox,
+   which unticked the add-on the moment a date or a time was clicked. The rule
+   is :checked-only, so it only bit once the customer had opted in.
+
+   `position: relative` confines that pseudo to the box it belongs to, which
+   fixes the hit area. Its content is deliberately left alone: the theme pairs
+   the rule with `appearance: none`, so that pseudo IS the visible tick, and
+   removing it would leave a ticked box looking empty. */
+.sb-booking input[type="checkbox"] {
+  /* !important: this has to win over the theme whatever order the sheets load
+     in, and it also covers the question checkboxes booking-step2.js builds in
+     JS, which carry no inline style of their own. */
+  position: relative !important;
+}
+
+.sb-addon__head {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 1rem 1.25rem;
+  background: var(--sb-tint);
+  cursor: pointer;
+}
+
+/* Themes often hide or restyle bare checkboxes (custom swatches, filters):
+   this one must stay a real, visible checkbox.
+
+   `position` is deliberately relative, NOT static: themes draw the tick with
+   an absolutely positioned ::before, and `inset: 0` on it resolves against
+   the nearest positioned ancestor. Forcing the input to static sent that
+   pseudo out to 602 x 2226 px over the whole card — and a pseudo hit-tests as
+   its owner, so every click on a date or a time was delivered to the checkbox
+   and unticked the add-on. */
+.sb-addon .sb-addon__check {
+  flex: none !important;
+  display: inline-block !important;
+  position: relative !important;
+  width: 1.15rem !important;
+  height: 1.15rem !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  clip: auto !important;
+  -webkit-appearance: checkbox !important;
+  appearance: auto !important;
+  accent-color: var(--sb-accent);
+  cursor: pointer;
+}
+
+.sb-addon__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.25rem;
+  background: var(--sb-bg);
+  overflow: hidden;
+}
+
+.sb-addon__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Short chip beside the add-on label, e.g. "Recommended". Set per service in
+   the app; absent when the merchant leaves it blank. */
+.sb-addon__badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: calc(var(--sb-radius) / 2);
+  background: var(--sb-soft);
+  color: var(--sb-fg);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.sb-addon__text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.sb-addon__name {
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.sb-addon__desc,
+.sb-addon__note,
+.sb-addon__hint {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--sb-muted);
+}
+
+.sb-addon__price {
+  flex: none;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.sb-addon__body {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.sb-addon__body[hidden],
+.sb-addon [data-sb-pickers][hidden],
+.sb-addon__summary[hidden],
+.sb-addon__hint[hidden] {
+  display: none;
+}
+
+/* Open on tick even before (or without) booking-addon.js. */
+.sb-addon:has(.sb-addon__check:checked) .sb-addon__body {
+  display: grid;
+}
+
+.sb-addon [data-sb-pickers] {
+  display: grid;
+  gap: 1rem;
+}
+
+.sb-addon .sb-eyebrow {
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+}
+
+.sb-addon__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.sb-addon__bar strong {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.sb-addon__month {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sb-addon__nav {
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 1px solid var(--sb-border);
+  border-radius: 0.25rem;
+  background: var(--sb-bg);
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* Month grid (roomy cards) */
+.sb-addon__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.375rem;
+}
+
+.sb-addon__dow {
+  padding-bottom: 0.25rem;
+  font-size: 0.7rem;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--sb-muted);
+}
+
+.sb-addon__day,
+.sb-addon__chip,
+.sb-addon__time {
+  border: 1px solid var(--sb-border);
+  border-radius: 0.25rem;
+  background: var(--sb-bg);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sb-addon__day {
+  min-height: 2.25rem;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
+/* Day chips (narrow cards): a scrolling row of the month's remaining days. */
+.sb-addon__strip {
+  display: none;
+  gap: 0.5rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.sb-addon__chip {
+  flex: none;
+  display: grid;
+  justify-items: center;
+  gap: 0.15rem;
+  min-width: 3.5rem;
+  padding: 0.5rem 0.25rem;
+  scroll-snap-align: start;
+}
+
+.sb-addon__chip small {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+}
+
+.sb-addon__chip strong {
+  font-size: 1.15rem;
+  font-weight: 500;
+}
+
+/* Times */
+.sb-addon__times {
+  padding-top: 1rem;
+  border-top: 1px solid var(--sb-border);
+}
+
+.sb-addon__times-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.sb-addon__time {
+  min-height: 2.5rem;
+  padding: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.sb-addon__day[aria-pressed="true"],
+.sb-addon__chip[aria-pressed="true"],
+.sb-addon__time[aria-pressed="true"] {
+  border-color: var(--sb-accent);
+  background: var(--sb-accent);
+  color: var(--sb-on-accent);
+  font-weight: 600;
+}
+
+.sb-addon__day:disabled,
+.sb-addon__chip:disabled,
+.sb-addon__time:disabled {
+  background: var(--sb-soft);
+  color: var(--sb-muted);
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
+
+/* Closed days (past, not open) are just greyed; booked-out days (`is-full`)
+   and booked-out times keep the strike-through. */
+.sb-addon__day:disabled:not(.is-full),
+.sb-addon__chip:disabled:not(.is-full) {
+  text-decoration: none;
+  opacity: 0.6;
+}
+
+/* Muted inline icons: a clock before the times note, ⓘ before the hint. */
+.sb-addon__note,
+.sb-addon__hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.sb-addon__note::before,
+.sb-addon__hint::before {
+  content: "";
+  flex: none;
+  width: 0.85rem;
+  height: 0.85rem;
+  margin-top: 0.1rem;
+  background: currentColor;
+  -webkit-mask: var(--sb-icon) center / contain no-repeat;
+  mask: var(--sb-icon) center / contain no-repeat;
+}
+
+.sb-addon__note {
+  --sb-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5'%3E%3Ccircle cx='8' cy='8' r='6.5'/%3E%3Cpath d='M8 4.5V8l2.5 1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+
+.sb-addon__hint {
+  --sb-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5'%3E%3Ccircle cx='8' cy='8' r='6.5'/%3E%3Cpath d='M8 7.5v4' stroke-linecap='round'/%3E%3Ccircle cx='8' cy='5' r='0.6' fill='black'/%3E%3C/svg%3E");
+}
+
+.sb-addon__note:empty,
+.sb-addon__status:empty {
+  display: none;
+}
+
+/* "Your appointment" */
+.sb-addon__summary {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--sb-border);
+  border-radius: 0.25rem;
+}
+
+.sb-addon__tick {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 0.2rem;
+  background: var(--sb-accent);
+  color: var(--sb-on-accent);
+  font-size: 0.75rem;
+}
+
+.sb-addon__when {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.sb-addon__when strong {
+  font-weight: 500;
+}
+
+.sb-addon__change {
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.sb-addon .sb-details {
+  padding: 0;
+  overflow: visible;
+}
+
+.sb-addon__status {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.sb-addon__status.sb-error {
+  color: #b42318;
+}
+
+.sb-addon__hint {
+  margin: 0.6rem 0 0;
+}
+
+.sb-addon__hint[hidden] {
+  display: none;
+}
+
+@container (max-width: 30rem) {
+  .sb-addon__head,
+  .sb-addon__body {
+    padding-left: 0.875rem;
+    padding-right: 0.875rem;
+  }
+
+  .sb-addon__grid {
+    display: none;
+  }
+
+  .sb-addon__strip {
+    display: flex;
+  }
+
+  .sb-addon__times-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 /* --- Dialog ------------------------------------------------------------ */
@@ -119,6 +551,7 @@
   overflow-y: auto;
 }
 
+
 .sb-modal__body[hidden],
 .sb-details[hidden],
 .sb-add[hidden] {
@@ -146,7 +579,7 @@
   width: 100%;
   min-height: 3.25rem;
   border: 0;
-  border-radius: 0.5rem;
+  border-radius: var(--sb-radius);
   background: var(--sb-accent);
   color: var(--sb-on-accent);
   font: inherit;
@@ -541,8 +974,9 @@
 }
 
 .sb-time:disabled {
-  cursor: progress;
+  cursor: not-allowed;
   opacity: 0.6;
+  text-decoration: line-through;
 }
 
 .sb-booking button:focus-visible {

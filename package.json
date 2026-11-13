@@ -4,7 +4,7 @@
   "scripts": {
     "build": "remix vite:build",
     "dev": "npm run build:widget && shopify app dev",
-    "build:widget": "esbuild storefront/booking-widget.js --minify --target=es2017 --outfile=extensions/booking-widget/assets/booking.js && esbuild storefront/booking-step2.js --minify --target=es2017 --outfile=extensions/booking-widget/assets/booking-step2.js",
+    "build:widget": "esbuild storefront/booking-widget.js --minify --target=es2017 --outfile=extensions/booking-widget/assets/booking.js && esbuild storefront/booking-step2.js --minify --target=es2017 --outfile=extensions/booking-widget/assets/booking-step2.js && esbuild storefront/booking-addon.js --minify --target=es2017 --outfile=extensions/booking-widget/assets/booking-addon.js",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
     "deploy": "npm run build:widget && shopify app deploy",

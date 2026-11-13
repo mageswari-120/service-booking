@@ -153,6 +153,7 @@ export function computeSlots({
   rangeStart,
   rangeEnd,
   now,
+  includeFull = false,
 }: ComputeSlotsParams): Slot[] {
   if (service.durationMinutes <= 0) return [];
   if (windows.length === 0) return [];
@@ -227,10 +228,11 @@ export function computeSlots({
 
         const capacity = capacityAt(service, window, overrides, localDate, minute);
         const remaining = capacity - (usageMap.get(key) ?? 0);
-        if (remaining <= 0 || remaining < minUnits) continue;
+        const full = remaining <= 0 || remaining < minUnits;
+        if (full && !includeFull) continue;
 
         seen.add(key);
-        slots.push({ startsAt, endsAt, capacity, remaining });
+        slots.push({ startsAt, endsAt, capacity, remaining: full ? 0 : remaining });
       }
     }
   }

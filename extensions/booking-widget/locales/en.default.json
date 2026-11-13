@@ -30,6 +30,15 @@
     "taken": "That time was just taken. Please pick another.",
     "error": "Something went wrong. Please try again.",
     "hour_12": "AM/PM",
-    "hour_24": "24h"
+    "hour_24": "24h",
+    "addon_label": "Add {{ title }}",
+    "choose_date": "Choose a date",
+    "available_times": "Available times",
+    "times_note": "All times shown in {{ zone }} · {{ minutes }} minutes per session",
+    "minutes": "{{ count }} minutes",
+    "your_appointment": "Your appointment",
+    "change": "Change",
+    "add_with_total": "Add to cart · {{ total }}",
+    "adds_items": "Adds 2 items — {{ product }} and {{ service }}"
   }
 }

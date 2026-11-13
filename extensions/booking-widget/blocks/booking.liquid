@@ -1,130 +1,293 @@
 {%- comment -%}
-  Booking button + popup for service products.
+  Two display modes (block setting "display"):
 
-  Renders hidden; the theme's own add-to-cart shows first. Variants the app
-  flagged as services (variant metafield service_booking.bookable, written
-  when a service is saved) are listed in data-bookable-variants, so right
-  after the page paints booking.js relabels the theme's button "Select a time"
-  with no network wait ("Buy it now" is hidden). It then loads availability
-  through the /apps/booking proxy in the background, and backs out if the app
-  says the variant isn't bookable after all.
+  popup ("In a popup") — booking button + popup for service products.
+    Renders hidden; the theme's own add-to-cart shows first. Variants the app
+    flagged as services (variant metafield service_booking.bookable, written
+    when a service is saved) are listed in data-bookable-variants, so right
+    after the page paints booking.js relabels the theme's button "Select a
+    time" with no network wait ("Buy it now" is hidden). It then loads
+    availability through the /apps/booking proxy in the background, and backs
+    out if the app says the variant isn't bookable after all.
 
-  The popup has two steps: [data-sb-step1] (calendar + times) and, once a time
-  is picked, [data-sb-details] (people, questions, signature, add-ons — drawn
-  by booking-step2.js, loaded on demand). Its "Add to cart" [data-sb-add]
-  holds the seats and adds the booking plus any add-ons to the cart.
+    The popup has two steps: [data-sb-step1] (calendar + times) and, once a
+    time is picked, [data-sb-details] (people, questions, signature, add-ons —
+    drawn by booking-step2.js, loaded on demand). Its "Add to cart"
+    [data-sb-add] holds the seats and adds the booking plus any add-ons.
 
-  Add-ons come from the service variant's service_booking.upsells metafield
-  (a variant-reference list the app writes) and are rendered here, one
-  <template> per variant, so showing them needs no request.
+    Add-ons come from the service variant's service_booking.upsells metafield
+    (a variant-reference list the app writes) and are rendered here, one
+    <template> per variant, so showing them needs no request.
 
-  The [data-sb-open] button is only a fallback for themes whose add-to-cart
-  can't be found.
+    The [data-sb-open] button is only a fallback for themes whose add-to-cart
+    can't be found.
+
+  inline ("On the page") — an add-on card, driven by booking-addon.js.
+    The service comes from the product's service_booking.addon_service
+    metafield (set by "Offer as an add-on on" in the app): the customer ticks
+    "Add <service>", picks a date and time, and the theme's own add-to-cart
+    adds the product and the booking together. When the product has no add-on
+    service but is itself a bookable service, the card books it directly
+    ("self" mode: only the booking is added, and the theme's button opens the
+    card rather than adding the service without a time). Both modes start
+    unticked; ticking opens the calendar.
 {%- endcomment -%}
 
 {%- if product -%}
-  <div
-    class="sb-booking"
-    hidden
-    data-sb-booking
-    data-label="{{ block.settings.button_label | default: 'Select a time' | escape }}"
-    data-variant-id="{{ product.selected_or_first_available_variant.id }}"
-    data-bookable-variants="{%- for v in product.variants -%}{%- if v.metafields.service_booking.bookable == true -%}{{ v.id }},{%- endif -%}{%- endfor -%}"
-    data-proxy="/apps/booking"
-    data-step2-src="{{ 'booking-step2.js' | asset_url }}"
-    data-week-start="{{ block.settings.week_start }}"
-    data-i18n-timezone="{{ 'booking.timezone' | t: zone: '__ZONE__' | escape }}"
-    data-i18n-close="{{ 'booking.close' | t | escape }}"
-    data-i18n-loading="{{ 'booking.loading' | t | escape }}"
-    data-i18n-no-dates="{{ 'booking.no_dates' | t | escape }}"
-    data-i18n-no-times="{{ 'booking.no_times' | t | escape }}"
-    data-i18n-previous-month="{{ 'booking.previous_month' | t | escape }}"
-    data-i18n-next-month="{{ 'booking.next_month' | t | escape }}"
-    data-i18n-pick-time="{{ 'booking.pick_time' | t | escape }}"
-    data-i18n-available="{{ 'booking.available' | t: count: '__COUNT__', total: '__TOTAL__' | escape }}"
-    data-i18n-spots-left="{{ 'booking.spots_left' | t: count: '__COUNT__' | escape }}"
-    data-i18n-back="{{ 'booking.back' | t | escape }}"
-    data-i18n-selected-time="{{ 'booking.selected_time' | t | escape }}"
-    data-i18n-from-to="{{ 'booking.from_to' | t: date: '__DATE__', start: '__START__', end: '__END__' | escape }}"
-    data-i18n-people="{{ 'booking.people' | t | escape }}"
-    data-i18n-people-help="{{ 'booking.people_help' | t: max: '__MAX__' | escape }}"
-    data-i18n-people-help-range="{{ 'booking.people_help_range' | t: min: '__MIN__', max: '__MAX__' | escape }}"
-    data-i18n-people-help-exact="{{ 'booking.people_help_exact' | t: count: '__COUNT__' | escape }}"
-    data-i18n-signature="{{ 'booking.signature' | t | escape }}"
-    data-i18n-signature-help="{{ 'booking.signature_help' | t | escape }}"
-    data-i18n-clear-signature="{{ 'booking.clear_signature' | t | escape }}"
-    data-i18n-add-these="{{ 'booking.add_these' | t | escape }}"
-    data-i18n-add="{{ 'booking.add' | t | escape }}"
-    data-i18n-added="{{ 'booking.added' | t | escape }}"
-    data-i18n-adding="{{ 'booking.adding' | t | escape }}"
-    data-i18n-required="{{ 'booking.required' | t | escape }}"
-    data-i18n-yes="{{ 'booking.yes' | t | escape }}"
-    data-i18n-taken="{{ 'booking.taken' | t | escape }}"
-    data-i18n-error="{{ 'booking.error' | t | escape }}"
-    data-i18n-hour12="{{ 'booking.hour_12' | t | escape }}"
-    data-i18n-hour24="{{ 'booking.hour_24' | t | escape }}"
-    style="--sb-accent: {{ block.settings.accent }};"
-    {{ block.shopify_attributes }}
-  >
-    <button type="button" class="sb-trigger" data-sb-open>
-      {{- block.settings.button_label | default: 'Select a time' | escape -}}
-    </button>
-
-    {%- for v in product.variants -%}
-      {%- assign upsells = v.metafields.service_booking.upsells.value -%}
-      {%- if upsells != blank -%}
-        <template data-sb-upsells data-for="{{ v.id }}">
-          {%- for u in upsells -%}
-            {%- if u.available -%}
-              <div class="sb-upsell" data-id="{{ u.id }}" data-title="{{ u.product.title | escape }}">
-                {%- assign img = u.image | default: u.product.featured_image -%}
-                {%- if img -%}
-                  {{ img | image_url: width: 120 | image_tag: class: 'sb-upsell__img', loading: 'lazy', alt: '' }}
-                {%- endif -%}
-                <div class="sb-upsell__info">
-                  <span class="sb-upsell__title">{{ u.product.title | escape }}</span>
-                  {%- unless u.product.has_only_default_variant -%}
-                    <small>{{ u.title | escape }}</small>
-                  {%- endunless -%}
-                </div>
-                <span class="sb-upsell__price">{{ u.price | money }}</span>
-              </div>
+  {%- if block.settings.display == 'inline' -%}
+    {%- liquid
+      assign sb_service = product.metafields.service_booking.addon_service.value
+      assign sb_self = false
+      if sb_service == blank
+        assign sb_own = product.selected_or_first_available_variant
+        if sb_own.metafields.service_booking.bookable == true
+          assign sb_service = sb_own
+          assign sb_self = true
+        endif
+      endif
+    -%}
+    {%- if sb_service != blank -%}
+      {%- liquid
+        assign sb_img = sb_service.image | default: sb_service.product.featured_image
+        comment
+          Wording set on the service in the app (service_booking.addon_card)
+          wins. Without it the product's own title and description are used,
+          which reads badly when the title is long or repetitive.
+        endcomment
+        assign sb_card = sb_service.metafields.service_booking.addon_card.value
+        assign sb_name = sb_card.label
+        if sb_name == blank
+          assign sb_name = 'booking.addon_label' | t: title: sb_service.product.title
+        endif
+        assign sb_badge = sb_card.badge
+        assign sb_desc = sb_card.description
+        if sb_desc == blank
+          assign sb_desc = sb_service.product.description | strip_html | strip | truncatewords: 18
+        endif
+        if sb_desc == blank
+          assign sb_desc = block.settings.description
+        endif
+      -%}
+      <div
+        class="sb-booking sb-addon"
+        data-sb-addon
+        {% if sb_self %}data-self{% endif %}
+        data-variant-id="{{ sb_service.id }}"
+        data-service-title="{{ sb_service.product.title | escape }}"
+        data-service-price="{{ sb_service.price }}"
+        data-money-format="{{ shop.money_format | strip_html | escape_once }}"
+        data-prices="{%- for v in product.variants -%}{{ v.id }}:{{ v.price }}{%- unless forloop.last -%},{%- endunless -%}{%- endfor -%}"
+        data-product-title="{{ product.title | escape }}"
+        data-variant-titles="{%- unless product.has_only_default_variant -%}{%- for v in product.variants -%}{{ v.id }}:{{ v.title | replace: '|', '/' | escape }}{%- unless forloop.last -%}|{%- endunless -%}{%- endfor -%}{%- endunless -%}"
+        data-proxy="/apps/booking"
+        data-step2-src="{{ 'booking-step2.js' | asset_url }}"
+        data-week-start="{{ block.settings.week_start }}"
+        data-i18n-loading="{{ 'booking.loading' | t | escape }}"
+        data-i18n-no-dates="{{ 'booking.no_dates' | t | escape }}"
+        data-i18n-no-times="{{ 'booking.no_times' | t | escape }}"
+        data-i18n-previous-month="{{ 'booking.previous_month' | t | escape }}"
+        data-i18n-next-month="{{ 'booking.next_month' | t | escape }}"
+        data-i18n-pick-time="{{ 'booking.pick_time' | t | escape }}"
+        data-i18n-choose-date="{{ 'booking.choose_date' | t | escape }}"
+        data-i18n-available-times="{{ 'booking.available_times' | t | escape }}"
+        data-i18n-times-note="{{ 'booking.times_note' | t: zone: '__ZONE__', minutes: '__MINUTES__' | escape }}"
+        data-i18n-minutes="{{ 'booking.minutes' | t: count: '__COUNT__' | escape }}"
+        data-i18n-add-with-total="{{ 'booking.add_with_total' | t: total: '__TOTAL__' | escape }}"
+        data-i18n-adds-items="{{ 'booking.adds_items' | t: product: '__PRODUCT__', service: '__SERVICE__' | escape }}"
+        data-i18n-people="{{ 'booking.people' | t | escape }}"
+        data-i18n-people-help="{{ 'booking.people_help' | t: max: '__MAX__' | escape }}"
+        data-i18n-people-help-range="{{ 'booking.people_help_range' | t: min: '__MIN__', max: '__MAX__' | escape }}"
+        data-i18n-people-help-exact="{{ 'booking.people_help_exact' | t: count: '__COUNT__' | escape }}"
+        data-i18n-signature="{{ 'booking.signature' | t | escape }}"
+        data-i18n-signature-help="{{ 'booking.signature_help' | t | escape }}"
+        data-i18n-clear-signature="{{ 'booking.clear_signature' | t | escape }}"
+        data-i18n-adding="{{ 'booking.adding' | t | escape }}"
+        data-i18n-required="{{ 'booking.required' | t | escape }}"
+        data-i18n-yes="{{ 'booking.yes' | t | escape }}"
+        data-i18n-taken="{{ 'booking.taken' | t | escape }}"
+        data-i18n-error="{{ 'booking.error' | t | escape }}"
+        style="
+          {%- if block.settings.accent_source == 'custom' %}--sb-accent: {{ block.settings.accent }};{% endif -%}
+          {%- if block.settings.highlight != blank %}--sb-tint: {{ block.settings.highlight }};{% endif -%}
+        "
+        {{ block.shopify_attributes }}
+      >
+        {%- comment -%}
+          A <div>, not a <label>: themes rewrite and re-wire labels in the
+          product area, and a label would turn every click in the card into a
+          checkbox toggle. booking-addon.js toggles on a header click instead.
+        {%- endcomment -%}
+        <div class="sb-addon__head" data-sb-head>
+          {%- comment -%}
+            position:relative inline: themes style checkboxes with an
+            absolutely positioned ::before holding the tick. Without a
+            positioned input, `inset: 0` on that pseudo resolves against a
+            far-up ancestor and it covers the whole card, swallowing every
+            click and handing it to the checkbox. Inline so no stylesheet
+            order can undo it.
+          {%- endcomment -%}
+          <input
+            type="checkbox"
+            class="sb-addon__check"
+            style="position: relative;"
+            data-sb-check
+            aria-label="{{ sb_name | escape }}"
+          >
+          {%- if sb_img -%}
+            <span class="sb-addon__icon">
+              {{- sb_img | image_url: width: 96 | image_tag: loading: 'lazy', alt: '' -}}
+            </span>
+          {%- endif -%}
+          <span class="sb-addon__text">
+            <span class="sb-addon__name">
+              {{- sb_name -}}
+              {%- if sb_badge != blank -%}
+                <span class="sb-addon__badge">{{ sb_badge | escape }}</span>
+              {%- endif -%}
+            </span>
+            {%- if sb_desc != blank -%}
+              <span class="sb-addon__desc">{{ sb_desc | escape }}</span>
             {%- endif -%}
-          {%- endfor -%}
-        </template>
-      {%- endif -%}
-    {%- endfor -%}
-
-    <dialog class="sb-modal" aria-labelledby="sb-title-{{ block.id }}" data-sb-dialog>
-      <div class="sb-modal__panel">
-        <header class="sb-modal__head">
-          <div>
-            <h2 class="sb-modal__title" id="sb-title-{{ block.id }}" data-sb-title>
-              {{- product.title | escape -}}
-            </h2>
-            <p class="sb-modal__zone" data-sb-zone></p>
-            {%- if block.settings.description != blank -%}
-              <p class="sb-modal__desc">{{ block.settings.description | escape }}</p>
-            {%- endif -%}
-          </div>
-          <button type="button" class="sb-modal__close" data-sb-close aria-label="{{ 'booking.close' | t | escape }}">
-            &times;
-          </button>
-        </header>
-        <div class="sb-modal__body" data-sb-step1>
-          <div class="sb-cal" data-sb-calendar></div>
-          <div class="sb-times" data-sb-times></div>
+          </span>
+          <span class="sb-addon__price">
+            {%- unless sb_self %}+ {% endunless -%}
+            {{- sb_service.price | money -}}
+          </span>
         </div>
-        <div class="sb-details" data-sb-details hidden></div>
-        <footer class="sb-modal__foot">
-          <p class="sb-modal__status" role="status" aria-live="polite" data-sb-status></p>
-          <button type="button" class="sb-add" data-sb-add hidden>
-            {{- 'booking.add_to_cart' | t -}}
-          </button>
-        </footer>
+        <div class="sb-addon__body" data-sb-body hidden>
+          <div data-sb-pickers>
+            <div class="sb-addon__cal" data-sb-calendar>
+              <p class="sb-muted">{{ 'booking.loading' | t }}</p>
+            </div>
+            <div class="sb-addon__times" data-sb-times></div>
+            <p class="sb-addon__note" data-sb-note></p>
+          </div>
+          <div class="sb-addon__summary" data-sb-summary hidden>
+            <span class="sb-addon__tick" aria-hidden="true">✓</span>
+            <span class="sb-addon__when">
+              <span class="sb-eyebrow">{{ 'booking.your_appointment' | t }}</span>
+              <strong data-sb-when></strong>
+              <small class="sb-muted">
+                <span data-sb-sub></span>
+                {%- if block.settings.appointment_note != blank %} · {{ block.settings.appointment_note | escape }}{% endif -%}
+              </small>
+            </span>
+            <button type="button" class="sb-addon__change" data-sb-change>
+              {{- 'booking.change' | t -}}
+            </button>
+          </div>
+          <div class="sb-details" data-sb-details hidden></div>
+          <p class="sb-addon__status" role="status" aria-live="polite" data-sb-status></p>
+        </div>
       </div>
-    </dialog>
-  </div>
+      <script src="{{ 'booking-addon.js' | asset_url }}" defer></script>
+    {%- endif -%}
+  {%- else -%}
+    <div
+      class="sb-booking"
+      hidden
+      data-sb-booking
+      data-label="{{ block.settings.button_label | default: 'Select a time' | escape }}"
+      data-variant-id="{{ product.selected_or_first_available_variant.id }}"
+      data-bookable-variants="{%- for v in product.variants -%}{%- if v.metafields.service_booking.bookable == true -%}{{ v.id }},{%- endif -%}{%- endfor -%}"
+      data-proxy="/apps/booking"
+      data-step2-src="{{ 'booking-step2.js' | asset_url }}"
+      data-week-start="{{ block.settings.week_start }}"
+      data-i18n-timezone="{{ 'booking.timezone' | t: zone: '__ZONE__' | escape }}"
+      data-i18n-close="{{ 'booking.close' | t | escape }}"
+      data-i18n-loading="{{ 'booking.loading' | t | escape }}"
+      data-i18n-no-dates="{{ 'booking.no_dates' | t | escape }}"
+      data-i18n-no-times="{{ 'booking.no_times' | t | escape }}"
+      data-i18n-previous-month="{{ 'booking.previous_month' | t | escape }}"
+      data-i18n-next-month="{{ 'booking.next_month' | t | escape }}"
+      data-i18n-pick-time="{{ 'booking.pick_time' | t | escape }}"
+      data-i18n-available="{{ 'booking.available' | t: count: '__COUNT__', total: '__TOTAL__' | escape }}"
+      data-i18n-spots-left="{{ 'booking.spots_left' | t: count: '__COUNT__' | escape }}"
+      data-i18n-back="{{ 'booking.back' | t | escape }}"
+      data-i18n-selected-time="{{ 'booking.selected_time' | t | escape }}"
+      data-i18n-from-to="{{ 'booking.from_to' | t: date: '__DATE__', start: '__START__', end: '__END__' | escape }}"
+      data-i18n-people="{{ 'booking.people' | t | escape }}"
+      data-i18n-people-help="{{ 'booking.people_help' | t: max: '__MAX__' | escape }}"
+      data-i18n-people-help-range="{{ 'booking.people_help_range' | t: min: '__MIN__', max: '__MAX__' | escape }}"
+      data-i18n-people-help-exact="{{ 'booking.people_help_exact' | t: count: '__COUNT__' | escape }}"
+      data-i18n-signature="{{ 'booking.signature' | t | escape }}"
+      data-i18n-signature-help="{{ 'booking.signature_help' | t | escape }}"
+      data-i18n-clear-signature="{{ 'booking.clear_signature' | t | escape }}"
+      data-i18n-add-these="{{ 'booking.add_these' | t | escape }}"
+      data-i18n-add="{{ 'booking.add' | t | escape }}"
+      data-i18n-added="{{ 'booking.added' | t | escape }}"
+      data-i18n-adding="{{ 'booking.adding' | t | escape }}"
+      data-i18n-required="{{ 'booking.required' | t | escape }}"
+      data-i18n-yes="{{ 'booking.yes' | t | escape }}"
+      data-i18n-taken="{{ 'booking.taken' | t | escape }}"
+      data-i18n-error="{{ 'booking.error' | t | escape }}"
+      data-i18n-hour12="{{ 'booking.hour_12' | t | escape }}"
+      data-i18n-hour24="{{ 'booking.hour_24' | t | escape }}"
+      {%- if block.settings.accent_source == 'custom' %}
+        style="--sb-accent: {{ block.settings.accent }};"
+      {%- endif %}
+      {{ block.shopify_attributes }}
+    >
+      <button type="button" class="sb-trigger" data-sb-open>
+        {{- block.settings.button_label | default: 'Select a time' | escape -}}
+      </button>
+
+      {%- for v in product.variants -%}
+        {%- assign upsells = v.metafields.service_booking.upsells.value -%}
+        {%- if upsells != blank -%}
+          <template data-sb-upsells data-for="{{ v.id }}">
+            {%- for u in upsells -%}
+              {%- if u.available -%}
+                <div class="sb-upsell" data-id="{{ u.id }}" data-title="{{ u.product.title | escape }}">
+                  {%- assign img = u.image | default: u.product.featured_image -%}
+                  {%- if img -%}
+                    {{ img | image_url: width: 120 | image_tag: class: 'sb-upsell__img', loading: 'lazy', alt: '' }}
+                  {%- endif -%}
+                  <div class="sb-upsell__info">
+                    <span class="sb-upsell__title">{{ u.product.title | escape }}</span>
+                    {%- unless u.product.has_only_default_variant -%}
+                      <small>{{ u.title | escape }}</small>
+                    {%- endunless -%}
+                  </div>
+                  <span class="sb-upsell__price">{{ u.price | money }}</span>
+                </div>
+              {%- endif -%}
+            {%- endfor -%}
+          </template>
+        {%- endif -%}
+      {%- endfor -%}
+
+      <dialog class="sb-modal" aria-labelledby="sb-title-{{ block.id }}" data-sb-dialog>
+        <div class="sb-modal__panel">
+          <header class="sb-modal__head">
+            <div>
+              <h2 class="sb-modal__title" id="sb-title-{{ block.id }}" data-sb-title>
+                {{- product.title | escape -}}
+              </h2>
+              <p class="sb-modal__zone" data-sb-zone></p>
+              {%- if block.settings.description != blank -%}
+                <p class="sb-modal__desc">{{ block.settings.description | escape }}</p>
+              {%- endif -%}
+            </div>
+            <button type="button" class="sb-modal__close" data-sb-close aria-label="{{ 'booking.close' | t | escape }}">
+              &times;
+            </button>
+          </header>
+          <div class="sb-modal__body" data-sb-step1>
+            <div class="sb-cal" data-sb-calendar></div>
+            <div class="sb-times" data-sb-times></div>
+          </div>
+          <div class="sb-details" data-sb-details hidden></div>
+          <footer class="sb-modal__foot">
+            <p class="sb-modal__status" role="status" aria-live="polite" data-sb-status></p>
+            <button type="button" class="sb-add" data-sb-add hidden>
+              {{- 'booking.add_to_cart' | t -}}
+            </button>
+          </footer>
+        </div>
+      </dialog>
+    </div>
+  {%- endif -%}
 {%- endif -%}
 
 {% schema %}
@@ -138,16 +301,42 @@
   },
   "settings": [
     {
+      "type": "select",
+      "id": "display",
+      "label": "Calendar display",
+      "info": "In a popup: on a service's own product page, opens the calendar from the add-to-cart button. On the page: shows the service as an add-on card with its calendar, on products chosen under \"Offer as an add-on on\" in the app.",
+      "options": [
+        { "value": "popup", "label": "In a popup" },
+        { "value": "inline", "label": "On the page" }
+      ],
+      "default": "popup"
+    },
+    {
       "type": "text",
       "id": "button_label",
       "label": "Button label",
+      "info": "Popup only.",
       "default": "Select a time"
     },
     {
       "type": "text",
       "id": "description",
       "label": "Popup message",
+      "info": "On the page, shown under the add-on's name when its product has no description.",
       "default": "You'll receive a confirmation email after checkout."
+    },
+    {
+      "type": "text",
+      "id": "appointment_note",
+      "label": "Appointment note",
+      "info": "On the page only. Shown under \"Your appointment\" after the duration.",
+      "default": "Video call link arrives with your order confirmation"
+    },
+    {
+      "type": "color",
+      "id": "highlight",
+      "label": "Add-on header colour",
+      "info": "On the page only. Leave empty for a light tint of the accent colour."
     },
     {
       "type": "select",
@@ -160,9 +349,20 @@
       "default": "0"
     },
     {
+      "type": "select",
+      "id": "accent_source",
+      "label": "Accent colour",
+      "options": [
+        { "value": "theme", "label": "Match my theme" },
+        { "value": "custom", "label": "Custom" }
+      ],
+      "default": "theme"
+    },
+    {
       "type": "color",
       "id": "accent",
-      "label": "Accent colour",
+      "label": "Custom accent colour",
+      "info": "Used only when Accent colour is set to Custom.",
       "default": "#000000"
     }
   ]

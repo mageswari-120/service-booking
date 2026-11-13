@@ -257,6 +257,20 @@ describe("computeSlots — capacity", () => {
     expect(slots).toEqual([]);
   });
 
+  it("keeps a full slot as remaining 0 with includeFull, for display", () => {
+    const nine = at(NY, "2027-06-01T09:00");
+    const slots = computeSlots(
+      params({
+        service: geometry({ capacityPerSlot: 2 }),
+        windows: [{ dayOfWeek: 2, startMinute: h(9), endMinute: h(11) }],
+        usage: [{ startsAt: nine, count: 2 }],
+        ...dayRange(NY, "2027-06-01"),
+        includeFull: true,
+      }),
+    );
+    expect(slots.map((s) => s.remaining)).toEqual([0, 2]);
+  });
+
   it("returns nothing for a service with non-positive capacity or duration", () => {
     const base = {
       windows: [{ dayOfWeek: 2, startMinute: h(9), endMinute: h(10) }],

@@ -9,6 +9,18 @@
  * any add-ons to the cart in one /cart/add.js call.
  *
  * Every rule here is re-checked by the hold endpoint (validateHoldDetails).
+ *
+ * Also used by booking-addon.js (the "On the page" add-on card) with:
+ *   ctx.compact     — render only people / questions / signature (the card
+ *                     shows its own summary; it has no add-ons or back button)
+ *   ctx.addBtn      — may be null: the caller runs the returned submit()
+ *   ctx.extraItems  — () => cart items added before the booking line (the
+ *                     product the service is an add-on to)
+ *   ctx.done        — after the cart add; default: go to /cart
+ *   ctx.initial     — { seats, answers } to prefill with, from a card this one
+ *                     replaced (the signature is never carried over)
+ * Returns { submit, empty, seats, values } — `empty` when no fields were
+ * rendered; `values()` reports what has been filled in so far.
  */
 (function () {
   "use strict";
@@ -25,7 +37,9 @@
     var limit = state.maxSeats || (state.mode === "bookings" ? min : Infinity);
     var max = state.mode === "bookings" ? limit : Math.min(limit, slot.remaining || 1);
     max = Math.max(min, max);
-    var seats = min;
+    var initial = ctx.initial || {};
+    var filled = initial.answers || {};
+    var seats = Math.min(max, Math.max(min, Number(initial.seats) || min));
     var fields = {}; // question id / "signature" -> { input, error }
     var pad = null;
     var busy = false;
@@ -67,7 +81,8 @@
 
     // --- Summary -----------------------------------------------------------
     var end = new Date(new Date(slot.start).getTime() + state.duration * 60000).toISOString();
-    var parts = [
+    var btn = ctx.addBtn;
+    var parts = ctx.compact ? [] : [
       el("button", { type: "button", class: "sb-back", text: "‹ " + t("Back"), onclick: ctx.back }),
       el("p", { class: "sb-eyebrow", text: t("SelectedTime") }),
       el("div", { class: "sb-pick" }, [
@@ -97,12 +112,14 @@
       var id = "sb-q-" + q.id;
       if (q.type === "checkbox") {
         var box = el("input", { type: "checkbox", id: id });
+        box.checked = !!filled[q.id];
         var row = el("label", { class: "sb-check", for: id }, [box, el("span", { text: q.label })]);
         if (q.required) row.appendChild(el("span", { class: "sb-req", "aria-hidden": "true", text: " *" }));
         parts.push(field(q.id, row, q.help, null, box));
       } else {
-        parts.push(field(q.id, labelFor(q.label, q.required, id), q.help,
-          el("input", { type: "text", id: id, maxlength: "500", autocomplete: "off" })));
+        var text = el("input", { type: "text", id: id, maxlength: "500", autocomplete: "off" });
+        if (filled[q.id]) text.value = filled[q.id];
+        parts.push(field(q.id, labelFor(q.label, q.required, id), q.help, text));
       }
     });
 
@@ -119,7 +136,7 @@
 
     // --- Add-ons (rendered by the block in Liquid) ---------------------------
     var addons = [];
-    var rows = ctx.upsells ? ctx.upsells.content.querySelectorAll("[data-id]") : [];
+    var rows = ctx.upsells && !ctx.compact ? ctx.upsells.content.querySelectorAll("[data-id]") : [];
     if (rows.length) {
       var list = el("div", { class: "sb-upsells" });
       Array.prototype.forEach.call(rows, function (tpl) {
@@ -151,8 +168,10 @@
       ctx.detailsEl.appendChild(p);
     });
     if (pad) pad.size();
-    ctx.addBtn.disabled = false;
-    ctx.addBtn.onclick = submit;
+    if (btn) {
+      btn.disabled = false;
+      btn.onclick = submit;
+    }
 
     // --- Submit --------------------------------------------------------------
     function showError(id, text) {
@@ -187,11 +206,13 @@
       var answers = collect();
       if (!answers) return;
       busy = true;
-      ctx.addBtn.disabled = true;
-      var label = ctx.addBtn.textContent;
-      ctx.addBtn.textContent = t("Adding") || label;
+      if (btn) {
+        btn.disabled = true;
+        var label = btn.textContent;
+        btn.textContent = t("Adding") || label;
+      }
       ctx.setStatus("");
-      ctx.api("/hold", null, {
+      return ctx.api("/hold", null, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -219,8 +240,10 @@
         })
         .then(function () {
           busy = false;
-          ctx.addBtn.disabled = false;
-          ctx.addBtn.textContent = label;
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = label;
+          }
         });
     }
 
@@ -242,7 +265,9 @@
       props._booking_hold = hold.token;
       props._booking_seats = String(seats);
 
-      var items = [{ id: Number(state.variantId), quantity: seats, properties: props }];
+      var items = (ctx.extraItems ? ctx.extraItems() : []).concat([
+        { id: Number(state.variantId), quantity: seats, properties: props },
+      ]);
       addons.forEach(function (a) {
         if (a.on) items.push({ id: a.id, quantity: a.qty });
       });
@@ -253,6 +278,7 @@
         body: JSON.stringify({ items: items }),
       }).then(function (res) {
         if (res.ok) {
+          if (ctx.done) return ctx.done();
           window.location.href = base + "cart";
           return new Promise(function () {}); // keep the button disabled while leaving
         }
@@ -267,6 +293,23 @@
         );
       });
     }
+
+    /** What the customer has entered so far; no validation, no side effects. */
+    function values() {
+      var answers = {};
+      state.questions.forEach(function (q) {
+        var input = fields[q.id] && fields[q.id].input;
+        if (input) answers[q.id] = q.type === "checkbox" ? input.checked : input.value;
+      });
+      return { seats: seats, answers: answers };
+    }
+
+    return {
+      submit: submit,
+      empty: !parts.length,
+      seats: function () { return seats; },
+      values: values,
+    };
   };
 
   /** A minimal pointer-events signature pad. */

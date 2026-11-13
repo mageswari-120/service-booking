@@ -18,6 +18,14 @@ import {
 /** Most add-on products offered in the booking popup. */
 export const MAX_UPSELLS = 5;
 
+/** Most products one service can be offered on as an add-on. */
+export const MAX_ADDON_PRODUCTS = 50;
+
+/** The add-on card is one line of a product page: keep its wording short. */
+export const MAX_ADDON_LABEL = 80;
+export const MAX_ADDON_DESCRIPTION = 200;
+export const MAX_ADDON_BADGE = 24;
+
 export interface WindowInput {
   dayOfWeek: number;
   /** "HH:MM", 24-hour, service-local. */
@@ -70,6 +78,12 @@ export interface ServiceFormInput {
   requireSignature: boolean;
   /** Variant GIDs offered as add-ons in the popup. */
   upsellVariantIds: string[];
+  /** Product GIDs whose pages offer this service as an add-on. */
+  addonProductIds?: string[];
+  /** Add-on card wording; empty falls back to the service product's own. */
+  addonLabel?: string | null;
+  addonDescription?: string | null;
+  addonBadge?: string | null;
 }
 
 export interface ServiceData {
@@ -103,6 +117,10 @@ export interface ServiceData {
   intakeQuestions: IntakeQuestion[];
   requireSignature: boolean;
   upsellVariantIds: string[];
+  addonProductIds: string[];
+  addonLabel: string | null;
+  addonDescription: string | null;
+  addonBadge: string | null;
 }
 
 /**
@@ -341,6 +359,30 @@ export function parseServiceInput(input: ServiceFormInput): ParseResult {
     errors.upsellVariantIds = "A service can't be its own add-on.";
   }
 
+  const addonProductIds = [...new Set(input.addonProductIds ?? [])];
+  if (addonProductIds.length > MAX_ADDON_PRODUCTS) {
+    errors.addonProductIds = `Up to ${MAX_ADDON_PRODUCTS} products.`;
+  } else if (addonProductIds.some((id) => !PRODUCT_GID.test(id))) {
+    errors.addonProductIds = "Choose products from this store.";
+  } else if (input.shopifyProductId && addonProductIds.includes(input.shopifyProductId)) {
+    errors.addonProductIds = "A service can't be offered as an add-on on its own product.";
+  }
+
+  // Blank means "fall back to the product's own title and description", so an
+  // empty field is valid; only the length is checked.
+  const addonLabel = (input.addonLabel ?? "").trim() || null;
+  if (addonLabel && addonLabel.length > MAX_ADDON_LABEL) {
+    errors.addonLabel = `Keep the label under ${MAX_ADDON_LABEL} characters.`;
+  }
+  const addonDescription = (input.addonDescription ?? "").trim() || null;
+  if (addonDescription && addonDescription.length > MAX_ADDON_DESCRIPTION) {
+    errors.addonDescription = `Keep the description under ${MAX_ADDON_DESCRIPTION} characters.`;
+  }
+  const addonBadge = (input.addonBadge ?? "").trim() || null;
+  if (addonBadge && addonBadge.length > MAX_ADDON_BADGE) {
+    errors.addonBadge = `Keep the badge under ${MAX_ADDON_BADGE} characters.`;
+  }
+
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   return {
@@ -366,6 +408,10 @@ export function parseServiceInput(input: ServiceFormInput): ParseResult {
       intakeQuestions,
       requireSignature: Boolean(input.requireSignature),
       upsellVariantIds,
+      addonProductIds,
+      addonLabel,
+      addonDescription,
+      addonBadge,
     },
   };
 }

@@ -112,6 +112,17 @@ model Service {
   // Variant GIDs offered as "Add these to your order" in the popup. Mirrored to
   // the service variant's service_booking.upsells metafield for the theme.
   upsellVariantIds Json?
+  // Product GIDs whose pages offer this service as an add-on ("On the page"
+  // block). Mirrored to each product's service_booking.addon_service metafield.
+  addonProductIds  Json?
+  // Wording of the add-on card on those pages. Null falls back to
+  // "Add <service product title>" and the product's own description — which
+  // reads badly when the product has a long or repetitive title. Mirrored to
+  // the service variant's service_booking.addon_card metafield so the theme
+  // renders it in Liquid with no request.
+  addonLabel       String?
+  addonDescription String?
+  addonBadge       String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

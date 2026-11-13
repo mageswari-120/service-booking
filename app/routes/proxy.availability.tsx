@@ -38,17 +38,25 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const from = DateTime.max(month.startOf("month"), nowLocal);
   const to = DateTime.min(month.endOf("month"), lastLocal);
 
+  // Booked-out slots come too (remaining 0), so the widget can show them
+  // struck through; `days` lists only the days that can still be booked.
   const byDay =
     from < to
-      ? slotsByDay(
-          await buildSlotParams(service, from.toJSDate(), to.toJSDate(), now),
-        )
+      ? slotsByDay({
+          ...(await buildSlotParams(service, from.toJSDate(), to.toJSDate(), now)),
+          includeFull: true,
+        })
       : {};
-  const days = Object.keys(byDay).sort();
+  const days = Object.keys(byDay)
+    .filter((day) => byDay[day].some((s) => s.remaining > 0))
+    .sort();
   // `end` is left out: the widget only needs the start, and a month of short
   // slots adds up.
+  // Every day the engine produced, not just `days`: a day whose slots are all
+  // taken is absent from `days` (it can't be booked) but the storefront still
+  // needs its slots to tell "sold out" apart from "never open".
   const slots = Object.fromEntries(
-    days.map((day) => [
+    Object.keys(byDay).map((day) => [
       day,
       byDay[day].map((s) => ({
         start: s.startsAt.toISOString(),
