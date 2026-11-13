@@ -47,7 +47,7 @@
   "devDependencies": {
     "@remix-run/eslint-config": "^2.16.1",
     "@remix-run/route-config": "^2.16.1",
-    "@shopify/api-codegen-preset": "^1.1.1",
+    "@shopify/api-codegen-preset": "^3.0.0",
     "@types/eslint": "^9.6.1",
     "@types/luxon": "^3.4.2",
     "@types/node": "^22.2.0",
