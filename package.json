@@ -8,6 +8,7 @@
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
     "deploy": "npm run build:widget && shopify app deploy",
+    "deploy:prod": "npm run build:widget && shopify app deploy --config production",
     "config:use": "shopify app config use",
     "env": "shopify app env",
     "start": "remix-serve ./build/server/index.js",
