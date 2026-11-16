@@ -92,7 +92,7 @@ model Service {
   bufferAfterMinutes  Int  @default(0)
   slotIntervalMinutes Int? // null => step by durationMinutes
   leadTimeMinutes     Int  @default(120)
-  maxAdvanceDays      Int  @default(60)
+  maxAdvanceDays      Int  @default(365)
   capacityPerSlot     Int  @default(1)
   // PEOPLE: capacity counts seats (party size). BOOKINGS: counts bookings,
   // whatever the party size.

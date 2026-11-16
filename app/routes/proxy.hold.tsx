@@ -19,6 +19,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const t0 = performance.now();
 
   const shop = await proxyShop(request);
+  const tAuth = performance.now();
 
   let body: {
     variant?: unknown;
@@ -56,7 +57,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const release = typeof body.release === "string" ? body.release : null;
   const holdStart = performance.now();
   const result = await createHold(service, startsAt, release, details);
-  const timing = `service;dur=${(holdStart - t0).toFixed(0)}, hold;dur=${(performance.now() - holdStart).toFixed(0)}`;
+  const timing =
+    `auth;dur=${(tAuth - t0).toFixed(0)}, service;dur=${(holdStart - tAuth).toFixed(0)}, ` +
+    `hold;dur=${(performance.now() - holdStart).toFixed(0)}, total;dur=${(performance.now() - t0).toFixed(0)}`;
   if (!result.ok) {
     return withTiming(
       proxyJson({ error: "That time was just taken. Please pick another." }, 409),

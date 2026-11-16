@@ -1,0 +1,161 @@
+{%- comment -%}
+  Booking calendar: a "Book now" button that opens a month view of every
+  bookable service (or only this product's), one chip per service per day.
+  A chip opens that day's times; "Continue to Book" runs the same details →
+  hold → cart flow as the product popup (booking-step2.js).
+  Script: booking-calendar.js (source: storefront/booking-calendar.js).
+{%- endcomment -%}
+{%- liquid
+  assign product_id = ''
+  if block.settings.scope == 'product' and product
+    assign product_id = product.id
+  endif
+  assign label = block.settings.button_label | default: 'Book now'
+  assign heading = block.settings.heading | default: 'Book an appointment'
+-%}
+<div
+  class="sb-booking sb-bcal"
+  data-sb-cal
+  data-proxy="/apps/booking"
+  data-product="{{ product_id }}"
+  data-step2-src="{{ 'booking-step2.js' | asset_url }}"
+  data-after-add="{{ block.settings.after_add }}"
+  data-week-start="{{ block.settings.week_start }}"
+  data-max-chips="{{ block.settings.max_chips }}"
+  data-i18n-loading="{{ 'booking.loading' | t | escape }}"
+  data-i18n-error="{{ 'booking.error' | t | escape }}"
+  data-i18n-close="{{ 'booking.close' | t | escape }}"
+  data-i18n-no-dates="{{ 'booking.no_dates' | t | escape }}"
+  data-i18n-no-services="{{ 'booking.no_services' | t | escape }}"
+  data-i18n-previous-month="{{ 'booking.previous_month' | t | escape }}"
+  data-i18n-next-month="{{ 'booking.next_month' | t | escape }}"
+  data-i18n-minutes="{{ 'booking.minutes' | t: count: '__COUNT__' | escape }}"
+  data-i18n-select-time="{{ 'booking.select_time' | t | escape }}"
+  data-i18n-continue="{{ 'booking.continue_to_book' | t | escape }}"
+  data-i18n-add-to-cart="{{ 'booking.add_to_cart' | t | escape }}"
+  data-i18n-sold-out="{{ 'booking.sold_out' | t | escape }}"
+  data-i18n-more="{{ 'booking.more' | t: count: '__COUNT__' | escape }}"
+  data-i18n-back="{{ 'booking.back' | t | escape }}"
+  data-i18n-selected-time="{{ 'booking.selected_time' | t | escape }}"
+  data-i18n-from-to="{{ 'booking.from_to' | t: date: '__DATE__', start: '__START__', end: '__END__' | escape }}"
+  data-i18n-people="{{ 'booking.people' | t | escape }}"
+  data-i18n-people-help="{{ 'booking.people_help' | t: max: '__MAX__' | escape }}"
+  data-i18n-people-help-range="{{ 'booking.people_help_range' | t: min: '__MIN__', max: '__MAX__' | escape }}"
+  data-i18n-people-help-exact="{{ 'booking.people_help_exact' | t: count: '__COUNT__' | escape }}"
+  data-i18n-signature="{{ 'booking.signature' | t | escape }}"
+  data-i18n-signature-help="{{ 'booking.signature_help' | t | escape }}"
+  data-i18n-clear-signature="{{ 'booking.clear_signature' | t | escape }}"
+  data-i18n-adding="{{ 'booking.adding' | t | escape }}"
+  data-i18n-appointment-date="{{ 'booking.appointment_date' | t | escape }}"
+  data-i18n-appointment-time="{{ 'booking.appointment_time' | t | escape }}"
+  data-i18n-duration="{{ 'booking.duration' | t | escape }}"
+  data-i18n-required="{{ 'booking.required' | t | escape }}"
+  data-i18n-yes="{{ 'booking.yes' | t | escape }}"
+  data-i18n-taken="{{ 'booking.taken' | t | escape }}"
+  {%- if block.settings.accent_source == 'custom' %}
+    style="--sb-accent: {{ block.settings.accent }};"
+  {%- endif %}
+  {{ block.shopify_attributes }}
+>
+  <button type="button" class="sb-trigger sb-bcal__open" data-sb-open>
+    {{- label | escape -}}
+  </button>
+
+  <dialog class="sb-modal sb-bcal__modal" aria-labelledby="sb-cal-title-{{ block.id }}" data-sb-dialog>
+    <div class="sb-modal__panel">
+      <header class="sb-modal__head">
+        <h2 class="sb-modal__title" id="sb-cal-title-{{ block.id }}">{{ heading | escape }}</h2>
+        <button type="button" class="sb-modal__close" data-sb-close aria-label="{{ 'booking.close' | t | escape }}">
+          &times;
+        </button>
+      </header>
+      <div class="sb-bcal__body">
+        <p class="sb-modal__status" role="status" aria-live="polite" data-sb-status></p>
+        <div class="sb-bcal__month" data-sb-month></div>
+      </div>
+    </div>
+    <div class="sb-bcal__overlay" data-sb-pop hidden></div>
+  </dialog>
+</div>
+
+{% schema %}
+{
+  "name": "Booking calendar",
+  "target": "section",
+  "javascript": "booking-calendar.js",
+  "stylesheet": "booking.css",
+  "settings": [
+    {
+      "type": "select",
+      "id": "scope",
+      "label": "Services shown",
+      "info": "Current product: on a product page, only the services sold as that product. Elsewhere it falls back to all services.",
+      "options": [
+        { "value": "all", "label": "All services" },
+        { "value": "product", "label": "Current product" }
+      ],
+      "default": "all"
+    },
+    {
+      "type": "text",
+      "id": "button_label",
+      "label": "Button label",
+      "default": "Book now"
+    },
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Calendar heading",
+      "default": "Book an appointment"
+    },
+    {
+      "type": "select",
+      "id": "after_add",
+      "label": "After adding to cart",
+      "info": "Opens your theme's cart drawer when it has one; otherwise goes to the cart page.",
+      "options": [
+        { "value": "drawer", "label": "Open cart drawer" },
+        { "value": "page", "label": "Go to cart page" }
+      ],
+      "default": "drawer"
+    },
+    {
+      "type": "range",
+      "id": "max_chips",
+      "label": "Services shown per day",
+      "info": "More are behind a \"+ more\" link.",
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "default": 3
+    },
+    {
+      "type": "select",
+      "id": "week_start",
+      "label": "Week starts on",
+      "options": [
+        { "value": "0", "label": "Sunday" },
+        { "value": "1", "label": "Monday" }
+      ],
+      "default": "0"
+    },
+    {
+      "type": "select",
+      "id": "accent_source",
+      "label": "Accent colour",
+      "options": [
+        { "value": "theme", "label": "Match my theme" },
+        { "value": "custom", "label": "Custom" }
+      ],
+      "default": "theme"
+    },
+    {
+      "type": "color",
+      "id": "accent",
+      "label": "Custom accent colour",
+      "info": "Used only when Accent colour is set to Custom.",
+      "default": "#000000"
+    }
+  ]
+}
+{% endschema %}

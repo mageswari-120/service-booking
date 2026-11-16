@@ -352,7 +352,7 @@ function emptyForm(): ServiceFormInput {
     bufferAfterMinutes: "0",
     slotIntervalMinutes: "",
     leadTimeMinutes: "120",
-    maxAdvanceDays: "60",
+    maxAdvanceDays: "365",
     capacityPerSlot: "1",
     capacityMode: "PEOPLE",
     minSeatsPerBooking: "1",
@@ -1099,6 +1099,7 @@ export default function ServiceEditor() {
                   value={form.maxAdvanceDays}
                   onChange={set("maxAdvanceDays")}
                   error={errors.maxAdvanceDays}
+                  helpText="How far ahead customers can book (up to 365). The storefront calendar shows months up to this point."
                 />
               </BlockStack>
             </Card>

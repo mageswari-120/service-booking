@@ -1,0 +1,55 @@
+{%- comment -%}
+  App embed: shows a booking's details in the theme's cart drawer and cart
+  page as a card ("Appointment date / time / Duration"), with how long the
+  slot is held. Theme-independent: booking-cart.js finds the property rows the
+  theme prints for a booking line (matched against /cart.js) and replaces them.
+  Source: storefront/booking-cart.js.
+{%- endcomment -%}
+<div
+  hidden
+  data-sb-cart
+  data-show-hold="{{ block.settings.show_hold }}"
+  data-show-reserved="{{ block.settings.show_reserved }}"
+  data-i18n-label="{{ 'booking.appointment_date' | t | escape }}"
+  data-i18n-held="{{ 'booking.cart_held' | t | escape }}"
+  data-i18n-expired="{{ 'booking.cart_held_expired' | t | escape }}"
+  data-i18n-for="{{ 'booking.cart_includes' | t | escape }}"
+  data-i18n-reserved="{{ 'booking.cart_reserved' | t | escape }}"
+></div>
+{%- comment -%}
+  The cart as rendered, so booking-cart.js can show the cards on first paint
+  instead of after a /cart.js round trip.
+{%- endcomment -%}
+<script type="application/json" data-sb-cart-data>{{ cart | json }}</script>
+<style>
+  :root { --sb-cart-accent: {{ block.settings.accent }}; }
+</style>
+
+{% schema %}
+{
+  "name": "Booking cart details",
+  "target": "body",
+  "javascript": "booking-cart.js",
+  "stylesheet": "booking-cart.css",
+  "settings": [
+    {
+      "type": "color",
+      "id": "accent",
+      "label": "Card accent colour",
+      "default": "#1f2a6b"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_hold",
+      "label": "Show how long the slot is held",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "show_reserved",
+      "label": "Show \"Your slot is reserved\" note",
+      "default": true
+    }
+  ]
+}
+{% endschema %}

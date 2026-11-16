@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 
 import db from "../../db.server";
 import { resolveTimezone } from "../shop.server";
+import { splitByService } from "./batch";
 import { parseQuestions, type IntakeQuestion } from "./details";
 import type {
   CapacityOverride,
@@ -129,6 +130,37 @@ export async function loadBookableService(
   return service ? toBookableService(service) : null;
 }
 
+/** Most services one storefront calendar shows (each costs a month of slots). */
+export const CALENDAR_SERVICE_LIMIT = 40;
+
+/**
+ * Every active service of a shop — or only those sold as `productId` (numeric
+ * storefront ID) — paired with the numeric variant ID the storefront books it
+ * by. Ordered by title so the calendar's colours stay put between visits.
+ */
+export async function loadBookableServices(
+  shopDomain: string,
+  productId?: string | null,
+): Promise<{ variantId: string; service: BookableService }[]> {
+  if (productId != null && !/^\d+$/.test(productId)) return [];
+
+  const rows = await db.service.findMany({
+    where: {
+      active: true,
+      shop: { domain: shopDomain, uninstalledAt: null },
+      ...(productId ? { shopifyProductId: `gid://shopify/Product/${productId}` } : {}),
+    },
+    include: bookableInclude,
+    orderBy: [{ title: "asc" }, { id: "asc" }],
+    take: CALENDAR_SERVICE_LIMIT,
+  });
+  const now = new Date();
+  return rows.map((row) => ({
+    variantId: row.shopifyVariantId.split("/").pop() ?? "",
+    service: toBookableService(row, now),
+  }));
+}
+
 /**
  * Everything `computeSlots` needs for [rangeStart, rangeEnd), read fresh.
  *
@@ -200,6 +232,80 @@ export async function buildSlotParams(
     rangeEnd,
     now,
   };
+}
+
+/**
+ * `buildSlotParams` for many services at once: the same three reads, made
+ * once for all of them over the widest range, then split per service. The
+ * storefront calendar shows every service of a shop; one read per service
+ * queued on the connection pool and made the month slow to appear.
+ *
+ * Returns params in the order of `items`. Read-only (no transaction client):
+ * holds still go through `buildSlotParams` under the advisory lock.
+ */
+export async function buildSlotParamsMany(
+  items: { service: BookableService; rangeStart: Date; rangeEnd: Date }[],
+  now: Date,
+): Promise<ComputeSlotsParams[]> {
+  if (!items.length) return [];
+  const ids = items.map((i) => i.service.id);
+  const rangeStart = new Date(Math.min(...items.map((i) => i.rangeStart.getTime())));
+  const rangeEnd = new Date(Math.max(...items.map((i) => i.rangeEnd.getTime())));
+  // Buffers can reach past the range, so widen the blackout read by a day.
+  const pad = 24 * 60 * 60_000;
+
+  const [blackoutRows, holdRows, bookingRows] = await Promise.all([
+    db.blackout.findMany({
+      where: {
+        shopId: items[0].service.shopId,
+        OR: [{ serviceId: null }, { serviceId: { in: ids } }],
+        startsAt: { lt: new Date(rangeEnd.getTime() + pad) },
+        endsAt: { gt: new Date(rangeStart.getTime() - pad) },
+      },
+      select: { serviceId: true, startsAt: true, endsAt: true },
+    }),
+    db.slotHold.groupBy({
+      by: ["serviceId", "startsAt"],
+      where: {
+        serviceId: { in: ids },
+        consumedAt: null,
+        expiresAt: { gt: now },
+        startsAt: { gte: rangeStart, lt: rangeEnd },
+      },
+      _sum: { seats: true },
+      _count: { _all: true },
+    }),
+    db.booking.groupBy({
+      by: ["serviceId", "startsAt"],
+      where: {
+        serviceId: { in: ids },
+        status: "CONFIRMED",
+        startsAt: { gte: rangeStart, lt: rangeEnd },
+      },
+      _sum: { seats: true },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const split = splitByService(
+    items.map((i) => i.service),
+    blackoutRows,
+    holdRows,
+    bookingRows,
+  );
+  return items.map(({ service, rangeStart: start, rangeEnd: end }) => {
+    const own = split.get(service.id) ?? { blackouts: [], usage: [] };
+    return {
+      service: service.geometry,
+      windows: service.windows,
+      blackouts: own.blackouts,
+      usage: own.usage,
+      overrides: service.overrides,
+      rangeStart: start,
+      rangeEnd: end,
+      now,
+    };
+  });
 }
 
 /** What the storefront widget needs to show and bound the "People" stepper. */

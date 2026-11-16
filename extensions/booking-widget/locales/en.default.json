@@ -39,6 +39,18 @@
     "your_appointment": "Your appointment",
     "change": "Change",
     "add_with_total": "Add to cart · {{ total }}",
-    "adds_items": "Adds 2 items — {{ product }} and {{ service }}"
+    "adds_items": "Adds 2 items — {{ product }} and {{ service }}",
+    "select_time": "Select a time",
+    "continue_to_book": "Continue to Book",
+    "sold_out": "Sold out",
+    "more": "+{{ count }} more",
+    "no_services": "No services can be booked right now.",
+    "appointment_date": "Appointment date",
+    "appointment_time": "Appointment time",
+    "duration": "Duration",
+    "cart_held": "Qty __QTY__ · one slot held for __MIN__ min",
+    "cart_held_expired": "Qty __QTY__ · hold expired, check out soon to keep this time",
+    "cart_reserved": "Your slot is reserved while you check out.",
+    "cart_includes": "Includes appointment: __WHEN__ — __SERVICE__"
   }
 }

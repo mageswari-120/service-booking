@@ -71,6 +71,7 @@
       <div
         class="sb-booking sb-addon"
         data-sb-addon
+        data-after-add="{{ block.settings.after_add }}"
         {% if sb_self %}data-self{% endif %}
         data-variant-id="{{ sb_service.id }}"
         data-service-title="{{ sb_service.product.title | escape }}"
@@ -102,6 +103,9 @@
         data-i18n-signature-help="{{ 'booking.signature_help' | t | escape }}"
         data-i18n-clear-signature="{{ 'booking.clear_signature' | t | escape }}"
         data-i18n-adding="{{ 'booking.adding' | t | escape }}"
+        data-i18n-appointment-date="{{ 'booking.appointment_date' | t | escape }}"
+        data-i18n-appointment-time="{{ 'booking.appointment_time' | t | escape }}"
+        data-i18n-duration="{{ 'booking.duration' | t | escape }}"
         data-i18n-required="{{ 'booking.required' | t | escape }}"
         data-i18n-yes="{{ 'booking.yes' | t | escape }}"
         data-i18n-taken="{{ 'booking.taken' | t | escape }}"
@@ -192,6 +196,7 @@
       data-bookable-variants="{%- for v in product.variants -%}{%- if v.metafields.service_booking.bookable == true -%}{{ v.id }},{%- endif -%}{%- endfor -%}"
       data-proxy="/apps/booking"
       data-step2-src="{{ 'booking-step2.js' | asset_url }}"
+      data-after-add="{{ block.settings.after_add }}"
       data-week-start="{{ block.settings.week_start }}"
       data-i18n-timezone="{{ 'booking.timezone' | t: zone: '__ZONE__' | escape }}"
       data-i18n-close="{{ 'booking.close' | t | escape }}"
@@ -217,6 +222,10 @@
       data-i18n-add="{{ 'booking.add' | t | escape }}"
       data-i18n-added="{{ 'booking.added' | t | escape }}"
       data-i18n-adding="{{ 'booking.adding' | t | escape }}"
+      data-i18n-appointment-date="{{ 'booking.appointment_date' | t | escape }}"
+      data-i18n-appointment-time="{{ 'booking.appointment_time' | t | escape }}"
+      data-i18n-duration="{{ 'booking.duration' | t | escape }}"
+      data-i18n-minutes="{{ 'booking.minutes' | t: count: '__COUNT__' | escape }}"
       data-i18n-required="{{ 'booking.required' | t | escape }}"
       data-i18n-yes="{{ 'booking.yes' | t | escape }}"
       data-i18n-taken="{{ 'booking.taken' | t | escape }}"
@@ -337,6 +346,17 @@
       "id": "highlight",
       "label": "Add-on header colour",
       "info": "On the page only. Leave empty for a light tint of the accent colour."
+    },
+    {
+      "type": "select",
+      "id": "after_add",
+      "label": "After adding to cart",
+      "info": "Opens your theme's cart drawer when it has one; otherwise goes to the cart page.",
+      "options": [
+        { "value": "drawer", "label": "Open cart drawer" },
+        { "value": "page", "label": "Go to cart page" }
+      ],
+      "default": "drawer"
     },
     {
       "type": "select",

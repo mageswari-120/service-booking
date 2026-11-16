@@ -1,0 +1,80 @@
+/* "Booking cart details" app embed (booking-cart.js): a booking line's
+   details in the theme's cart drawer and cart page. Inherits the theme's
+   font and text colour; --sb-cart-accent comes from the embed's setting. */
+
+.sb-cart-hidden {
+  display: none !important;
+}
+
+.sb-cart-card {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.6rem 0 0.4rem;
+  padding: 0.6rem 0.85rem;
+  border-left: 2px solid var(--sb-cart-accent, #1f2a6b);
+  background: color-mix(in srgb, var(--sb-cart-accent, #1f2a6b) 5%, #fff);
+  font-size: 0.85em;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.sb-cart-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.sb-cart-row span {
+  opacity: 0.7;
+}
+
+.sb-cart-row strong {
+  font-weight: 600;
+}
+
+.sb-cart-held {
+  margin: 0.4rem 0 0;
+  font-size: 0.8em;
+  opacity: 0.65;
+}
+
+.sb-cart-reserved,
+.sb-cart-reserved td {
+  list-style: none;
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+
+div.sb-cart-reserved,
+li.sb-cart-reserved,
+.sb-cart-reserved td {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 1rem 0;
+}
+
+.sb-cart-reserved::before,
+.sb-cart-reserved td::before {
+  content: "";
+  flex: none;
+  width: 0.85rem;
+  height: 0.8rem;
+  border: 1.5px solid currentColor;
+  border-top-width: 3px;
+  border-radius: 2px;
+}
+
+tr.sb-cart-reserved::before {
+  content: none;
+}
+
+/* Under the product an add-on service was booked with. */
+.sb-cart-for {
+  margin: 0.5rem 0 0.35rem;
+  padding: 0.35rem 0.7rem;
+  border-left: 2px solid var(--sb-cart-accent, #1f2a6b);
+  background: color-mix(in srgb, var(--sb-cart-accent, #1f2a6b) 5%, #fff);
+  font-size: 0.8em;
+  line-height: 1.35;
+}

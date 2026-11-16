@@ -77,6 +77,7 @@
       signature: false,
       h24: readHourPref(),
       seq: 0,
+      current: null, // this month, once the server has said which
     };
 
     function t(key, vars) {
@@ -311,6 +312,7 @@
             taken: function () {
               showPickers();
               sync();
+              delete cache[state.month]; // that slot is gone: don't show it again
               loadMonth(state.month).then(function () {
                 setStatus(t("Taken"), true);
               });
@@ -468,11 +470,56 @@
       timesEl.appendChild(list);
     }
 
+    /**
+     * One /availability request per month, shared by everyone asking at once:
+     * the page-load prefetch and a tick on the checkbox that comes before it
+     * answers wait on the same request (a second one used to replace it, so
+     * the customer waited twice). Good answers are cached by month.
+     */
+    var cache = {};
+    var inflight = {};
+    function fetchMonth(month) {
+      var key = month || "";
+      if (!inflight[key]) {
+        var params = { variant: state.variantId };
+        if (month) params.month = month;
+        var settle = function () {
+          delete inflight[key];
+        };
+        inflight[key] = api("/availability", params).then(function (res) {
+          settle();
+          if (res.status === 200 && res.data.bookable) cache[res.data.month] = res.data;
+          return res;
+        }, function (e) {
+          settle();
+          throw e;
+        });
+      }
+      return inflight[key];
+    }
+
+    /** A greyed month so the card opens at once, before its dates arrive. */
+    function renderSkeleton() {
+      if (calEl.firstChild) return;
+      var grid = el("div", { class: "sb-addon__grid", "aria-hidden": "true" });
+      for (var i = 0; i < 35; i++) grid.appendChild(el("span", { class: "sb-addon__day sb-addon__day--skeleton" }));
+      calEl.appendChild(grid);
+    }
+
+    /**
+     * Show a month: at once from the cache (then refreshed quietly — slots
+     * change), else a skeleton until it arrives. Afterwards step 2's script
+     * and the next month are fetched, so picking a time and › are instant.
+     */
     function loadMonth(month) {
       var seq = ++state.seq;
-      var params = { variant: state.variantId };
-      if (month) params.month = month;
-      return api("/availability", params)
+      var hit = cache[month || state.current];
+      if (hit) showMonth(hit);
+      else if (on()) {
+        renderSkeleton();
+        setStatus(t("Loading"));
+      }
+      return fetchMonth(month)
         .then(function (res) {
           if (seq !== state.seq) return;
           // The service was paused or removed since the page was rendered.
@@ -482,32 +529,40 @@
             return;
           }
           if (res.status !== 200 || !res.data.bookable) throw res.status;
-          var d = res.data;
-          state.timezone = d.timezone;
-          state.month = d.month;
-          state.firstMonth = d.firstMonth;
-          state.lastMonth = d.lastMonth;
-          state.days = d.days;
-          state.byDay = d.slots || {};
-          state.capacity = d.capacity || 1;
-          state.mode = d.mode || "people";
-          state.minSeats = d.minSeats || 1;
-          state.maxSeats = d.maxSeats || null;
-          state.duration = d.duration || 0;
-          state.questions = d.questions || [];
-          state.signature = !!d.signature;
-          if (state.date && state.date.slice(0, 7) !== d.month) state.date = null;
-          if (!state.date && d.days.length) state.date = d.days[0];
-          noteEl.textContent = t("TimesNote", { zone: zoneName("long"), minutes: state.duration });
+          if (!month) state.current = res.data.month;
+          if (!hit || JSON.stringify(hit) !== JSON.stringify(res.data)) showMonth(res.data);
           setStatus("");
-          renderCalendar();
-          renderTimes();
-          sync();
-          restore();
+          loadStep2().catch(function () {});
+          var next = shiftMonth(res.data.month, 1);
+          if (!cache[next] && next <= res.data.lastMonth) fetchMonth(next).catch(function () {});
         })
         .catch(function () {
-          if (seq === state.seq && on()) setStatus(t("Error"), true);
+          if (seq === state.seq && on() && !hit) setStatus(t("Error"), true);
         });
+    }
+
+    /** Draw an /availability answer (fresh or cached). */
+    function showMonth(d) {
+      state.timezone = d.timezone;
+      state.month = d.month;
+      state.firstMonth = d.firstMonth;
+      state.lastMonth = d.lastMonth;
+      state.days = d.days;
+      state.byDay = d.slots || {};
+      state.capacity = d.capacity || 1;
+      state.mode = d.mode || "people";
+      state.minSeats = d.minSeats || 1;
+      state.maxSeats = d.maxSeats || null;
+      state.duration = d.duration || 0;
+      state.questions = d.questions || [];
+      state.signature = !!d.signature;
+      if (state.date && state.date.slice(0, 7) !== d.month) state.date = null;
+      if (!state.date && d.days.length) state.date = d.days[0];
+      noteEl.textContent = t("TimesNote", { zone: zoneName("long"), minutes: state.duration });
+      renderCalendar();
+      renderTimes();
+      sync();
+      restore();
     }
 
     // ---------------------------------------------------------------------

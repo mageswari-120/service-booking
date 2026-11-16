@@ -21,6 +21,16 @@
  *                     replaced (the signature is never carried over)
  * Returns { submit, empty, seats, values } — `empty` when no fields were
  * rendered; `values()` reports what has been filled in so far.
+ *
+ * After the add: the block's data-after-add="drawer" (read from ctx.root)
+ * opens the theme's cart drawer, closing the caller's open <dialog> first;
+ * anything else, or a drawer that can't be opened, goes to /cart.
+ *
+ * THEME INTEGRATION — any theme can open its own drawer for a booking:
+ *   document.addEventListener("service-booking:cart-added", function (e) {
+ *     e.preventDefault(); // the theme takes over; detail: { items, cart }
+ *     // refresh the theme's cart drawer, then open it
+ *   });
  */
 (function () {
   "use strict";
@@ -43,6 +53,7 @@
     var fields = {}; // question id / "signature" -> { input, error }
     var pad = null;
     var busy = false;
+    var afterAdd = ctx.root && ctx.root.dataset.afterAdd;
     var lastHold = null; // a retry (e.g. the cart add failed) replaces this hold
 
     /** `control` is shown under the label; `input` (default: control) gets focus on error. */
@@ -211,7 +222,10 @@
         var label = btn.textContent;
         btn.textContent = t("Adding") || label;
       }
-      ctx.setStatus("");
+      // No button of ours (add-on card: the theme's button submits): say so in
+      // the status line at once — the hold and the cart add take a moment.
+      var failed = false;
+      ctx.setStatus(btn ? "" : t("Adding"));
       return ctx.api("/hold", null, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -227,6 +241,7 @@
         .then(function (res) {
           if (res.status === 409) return ctx.taken();
           if (res.status === 400 && res.data.error) {
+            failed = true;
             ctx.setStatus(res.data.error, true);
             showError(res.data.field, res.data.error);
             return;
@@ -236,10 +251,12 @@
           return addToCart(res.data, answers);
         })
         .catch(function (message) {
+          failed = true;
           ctx.setStatus(typeof message === "string" ? message : t("Error"), true);
         })
         .then(function () {
           busy = false;
+          if (!btn && !failed) ctx.setStatus("");
           if (btn) {
             btn.disabled = false;
             btn.textContent = label;
@@ -248,13 +265,18 @@
     }
 
     function addToCart(hold, answers) {
-      var props = {
-        Appointment: ctx.fmt(slot.start, {
-          weekday: "short", day: "numeric", month: "short", year: "numeric",
-          hour: "numeric", minute: "2-digit", timeZoneName: "short",
-          hourCycle: state.h24 ? "h23" : "h12",
-        }),
-      };
+      // One property per fact, so every theme prints them as separate rows
+      // (and the "Booking cart details" embed can lay them out as a card).
+      var props = {};
+      props[t("AppointmentDate") || "Appointment date"] = ctx.fmt(slot.start, {
+        weekday: "short", day: "numeric", month: "short", year: "numeric",
+      });
+      props[t("AppointmentTime") || "Appointment time"] =
+        ctx.formatTime(slot.start) + " (" + zoneName(slot.start) + ")";
+      if (state.duration) {
+        props[t("Duration") || "Duration"] =
+          t("Minutes", { count: state.duration }) || state.duration + " minutes";
+      }
       if (seats > 1) props[t("People")] = String(seats);
       state.questions.forEach(function (q) {
         var v = answers[q.id];
@@ -264,23 +286,50 @@
       props._booking_start = hold.start;
       props._booking_hold = hold.token;
       props._booking_seats = String(seats);
+      // For the cart's "slot held for N min" (Booking cart details embed).
+      if (hold.expiresAt) props._booking_expires = hold.expiresAt;
 
-      var items = (ctx.extraItems ? ctx.extraItems() : []).concat([
+      var extra = ctx.extraItems ? ctx.extraItems() : [];
+      // The product this service was booked with (add-on card): the cart
+      // embed notes the appointment under that product's line too.
+      if (extra.length && extra[0].id) props._booking_for = String(extra[0].id);
+      var items = extra.concat([
         { id: Number(state.variantId), quantity: seats, properties: props },
       ]);
       addons.forEach(function (a) {
         if (a.on) items.push({ id: a.id, quantity: a.qty });
       });
       var base = (window.Shopify && Shopify.routes && Shopify.routes.root) || "/";
+      // Drawer unless the merchant chose "Go to cart page": a block saved
+      // before the setting existed renders it empty.
+      var drawerMode = afterAdd !== "page";
+      var drawer = !ctx.done && drawerMode && dawnDrawer();
+      var body = { items: items };
+      if (drawer) {
+        // Dawn-family drawers re-render from sections sent with the add.
+        body.sections = drawer.getSectionsToRender().map(function (s) {
+          return s.id;
+        });
+        body.sections_url = window.location.pathname;
+      }
       return fetch(base + "cart/add.js", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ items: items }),
+        body: JSON.stringify(body),
       }).then(function (res) {
         if (res.ok) {
           if (ctx.done) return ctx.done();
-          window.location.href = base + "cart";
-          return new Promise(function () {}); // keep the button disabled while leaving
+          if (drawerMode) {
+            return res.json().then(function (cart) {
+              var path = openDrawer(drawer, cart, items);
+              console.info("[service-booking] after add:", path || "cart-page");
+              if (!path) return goToCart(base);
+            }).catch(function (e) {
+              console.warn("[service-booking] cart drawer failed, going to cart", e);
+              return goToCart(base);
+            });
+          }
+          return goToCart(base);
         }
         // e.g. an add-on just sold out: Shopify explains in `description`.
         return res.json().then(
@@ -292,6 +341,78 @@
           },
         );
       });
+    }
+
+    /** "IST", "GMT+4", …: the short name of the service's zone at that time. */
+    function zoneName(iso) {
+      try {
+        var parts = new Intl.DateTimeFormat(document.documentElement.lang || undefined, {
+          timeZone: state.timezone,
+          timeZoneName: "short",
+        }).formatToParts(new Date(iso));
+        for (var i = 0; i < parts.length; i++) {
+          if (parts[i].type === "timeZoneName") return parts[i].value;
+        }
+      } catch (e) {}
+      return state.timezone;
+    }
+
+    function goToCart(base) {
+      window.location.href = base + "cart";
+      return new Promise(function () {}); // keep the button disabled while leaving
+    }
+
+    /**
+     * "After adding to cart: Open cart drawer". Themes have no common API,
+     * so, first that works:
+     *   1. our event: a theme listener that calls preventDefault() refreshes
+     *      and opens its own drawer (see THEME INTEGRATION at the top);
+     *   2. Dawn-family <cart-drawer>/<cart-notification> (sections came with
+     *      the add);
+     *   3. a drawer element with its own open()/show();
+     *   4. common refresh events + a click on the cart icon (a drawer theme
+     *      opens its drawer; any other navigates to /cart).
+     * Our <dialog> is closed first: it sits in the top layer, above any drawer.
+     * Returns which path ran (logged), or "" when none applied (→ /cart).
+     */
+    function openDrawer(drawer, cart, items) {
+      var open = ctx.root.querySelector("dialog[open]");
+      if (open) open.close();
+      var event = new CustomEvent("service-booking:cart-added", {
+        cancelable: true,
+        detail: { items: items, cart: cart },
+      });
+      if (!document.dispatchEvent(event)) return "theme-event";
+      if (drawer && cart.sections) {
+        var added = (cart.items || [])[cart.items.length - 1] || {};
+        drawer.classList.remove("is-empty");
+        drawer.renderContents({ id: added.id, key: added.key, sections: cart.sections });
+        return "dawn";
+      }
+      ["cart:refresh", "cart:updated", "theme:cart:reload"].forEach(function (name) {
+        document.dispatchEvent(new CustomEvent(name, { bubbles: true, detail: { cart: cart } }));
+      });
+      var el = document.querySelector("cart-drawer, cart-drawer-component, side-cart, mini-cart, [id*='cart-drawer' i]");
+      var show = el && (el.open || el.show);
+      if (typeof show === "function") {
+        show.call(el);
+        return "element:" + el.tagName.toLowerCase();
+      }
+      var sel = [
+        "[data-cart-drawer-toggle]", '[data-drawer-toggle*="cart" i]', "[data-open-cart]",
+        '[aria-controls*="cart" i]', '[data-target*="cart" i]', "#cart-icon-bubble",
+        ".header__icon--cart", 'a[href$="/cart"]',
+      ];
+      for (var i = 0; i < sel.length; i++) {
+        var hits = document.querySelectorAll(sel[i]);
+        for (var j = 0; j < hits.length; j++) {
+          // Ours, or the inside of a closed dialog, never opens anything.
+          if (ctx.root.contains(hits[j]) || hits[j].closest("dialog:not([open])")) continue;
+          hits[j].click();
+          return "toggle:" + sel[i];
+        }
+      }
+      return "";
     }
 
     /** What the customer has entered so far; no validation, no side effects. */
@@ -311,6 +432,12 @@
       values: values,
     };
   };
+
+  /** Dawn and its descendants: a drawer (or notification) that can re-render itself. */
+  function dawnDrawer() {
+    var d = document.querySelector("cart-drawer, cart-notification");
+    return d && typeof d.renderContents === "function" && typeof d.getSectionsToRender === "function" ? d : null;
+  }
 
   /** A minimal pointer-events signature pad. */
   function signaturePad(canvas) {

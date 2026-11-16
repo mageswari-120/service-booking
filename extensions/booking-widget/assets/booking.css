@@ -1018,3 +1018,412 @@
     flex: 1;
   }
 }
+
+/* --- Booking calendar block (booking-calendar.js) ------------------------ */
+
+/* "Book now" opens a large month view: one coloured chip per service per day
+   (--sb-c, set per chip). A chip opens a centred time card over the month.
+   Below ~640px the grid becomes an agenda list of the days with services. */
+
+.sb-bcal .sb-bcal__open {
+  width: auto;
+}
+
+.sb-bcal__modal {
+  width: min(75rem, calc(100vw - 2rem));
+  height: calc(100dvh - 2rem);
+  overflow: hidden;
+}
+
+.sb-bcal__modal .sb-modal__panel {
+  height: 100%;
+}
+
+.sb-bcal__body {
+  flex: 1;
+  min-height: 0;
+  padding: 1rem 1.5rem 1.5rem;
+  overflow-y: auto;
+  container-type: inline-size;
+}
+
+.sb-bcal__head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.sb-bcal__head strong {
+  min-width: 10rem;
+  text-align: center;
+  font-size: 1.1rem;
+}
+
+.sb-bcal__nav {
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid var(--sb-border);
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sb-bcal__nav:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sb-bcal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-top: 1px solid var(--sb-border);
+  border-left: 1px solid var(--sb-border);
+}
+
+.sb-bcal__dow {
+  padding: 0.5rem;
+  border-right: 1px solid var(--sb-border);
+  border-bottom: 1px solid var(--sb-border);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--sb-muted);
+}
+
+.sb-bcal__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-height: 8.5rem;
+  padding: 0.5rem 0.4rem;
+  border-right: 1px solid var(--sb-border);
+  border-bottom: 1px solid var(--sb-border);
+  min-width: 0;
+}
+
+.sb-bcal__cell.is-out {
+  background: var(--sb-soft);
+  color: var(--sb-muted);
+}
+
+.sb-bcal__wd {
+  display: none;
+}
+
+.sb-bcal__num {
+  align-self: flex-end;
+  min-width: 1.6rem;
+  height: 1.6rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.6rem;
+  text-align: center;
+}
+
+.sb-bcal__num.is-today {
+  background: var(--sb-fg);
+  color: var(--sb-bg);
+}
+
+.sb-bcal__chip {
+  display: block;
+  width: 100%;
+  padding: 0.2rem 0.45rem;
+  border: 0;
+  border-left: 3px solid var(--sb-c);
+  border-radius: 0.3rem;
+  background: color-mix(in srgb, var(--sb-c) 12%, #fff);
+  color: var(--sb-fg);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.sb-bcal__chip:hover {
+  background: color-mix(in srgb, var(--sb-c) 22%, #fff);
+}
+
+.sb-bcal__chip.is-full {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.sb-bcal__chip.is-extra {
+  display: none;
+}
+
+.sb-bcal__cell.is-open .sb-bcal__chip.is-extra {
+  display: block;
+}
+
+.sb-bcal__more {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sb-muted);
+  font: inherit;
+  font-size: 0.75rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Time card over the month. */
+.sb-bcal__overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.sb-bcal__overlay[hidden] {
+  display: none;
+}
+
+.sb-bcal__card {
+  display: grid;
+  gap: 0.9rem;
+  width: min(28rem, 100%);
+  max-height: 100%;
+  padding: 1.75rem;
+  border-radius: 1rem;
+  background: var(--sb-bg);
+  color: var(--sb-fg);
+  box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.25);
+  overflow-y: auto;
+}
+
+.sb-bcal__bar {
+  width: 2.5rem;
+  height: 0.25rem;
+  border-radius: 999px;
+  background: var(--sb-c, var(--sb-accent));
+}
+
+.sb-bcal__title {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+.sb-bcal__date {
+  margin: -0.5rem 0 0;
+}
+
+.sb-bcal__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--sb-border);
+  border-bottom: 1px solid var(--sb-border);
+}
+
+.sb-bcal__meta::before {
+  content: "";
+  width: 1rem;
+  height: 1rem;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  background:
+    linear-gradient(currentColor, currentColor) 50% 30% / 1.5px 35% no-repeat,
+    linear-gradient(currentColor, currentColor) 62% 52% / 25% 1.5px no-repeat;
+  opacity: 0.7;
+}
+
+.sb-bcal__pick[hidden],
+.sb-bcal__details[hidden] {
+  display: none;
+}
+
+.sb-bcal__pick .sb-eyebrow {
+  margin-bottom: 0.6rem;
+}
+
+.sb-bcal__times {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr));
+  gap: 0.5rem;
+}
+
+.sb-bcal__time {
+  min-height: 2.75rem;
+  border: 1px solid var(--sb-border);
+  border-radius: 0.5rem;
+  background: var(--sb-bg);
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sb-bcal__time:hover {
+  border-color: var(--sb-fg);
+}
+
+.sb-bcal__time[aria-pressed="true"] {
+  border-color: var(--sb-accent);
+  background: var(--sb-accent);
+  color: var(--sb-on-accent);
+}
+
+.sb-bcal__time:disabled {
+  opacity: 0.4;
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
+
+.sb-bcal__details {
+  padding: 0;
+  overflow: visible;
+}
+
+.sb-bcal__actions {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 0.6rem;
+}
+
+.sb-bcal__go:disabled {
+  cursor: not-allowed;
+}
+
+.sb-bcal__close {
+  border: 1px solid var(--sb-border);
+  border-radius: var(--sb-radius);
+  background: var(--sb-bg);
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Narrow: an agenda of the days that have services. */
+@container (max-width: 640px) {
+  .sb-bcal__grid {
+    display: block;
+    border: 0;
+  }
+
+  .sb-bcal__dow,
+  .sb-bcal__cell.is-empty,
+  .sb-bcal__cell.is-out {
+    display: none;
+  }
+
+  .sb-bcal__cell {
+    display: grid;
+    grid-template-columns: 3rem minmax(0, 1fr);
+    align-items: start;
+    min-height: 0;
+    padding: 0.75rem 0;
+    border: 0;
+    border-bottom: 1px solid var(--sb-border);
+  }
+
+  .sb-bcal__wd {
+    display: block;
+    grid-column: 1;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: var(--sb-muted);
+  }
+
+  .sb-bcal__num {
+    grid-column: 1;
+    grid-row: 2 / span 20;
+    align-self: start;
+    justify-self: start;
+  }
+
+  .sb-bcal__chip,
+  .sb-bcal__more {
+    grid-column: 2;
+  }
+
+  .sb-bcal__chip {
+    padding: 0.5rem 0.65rem;
+    font-size: 0.9rem;
+  }
+
+  .sb-bcal__wd {
+    grid-row: 1;
+  }
+}
+
+@media (max-width: 480px) {
+  .sb-bcal__actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Calendar skeleton while a month loads. */
+.sb-bcal__cell--skeleton,
+.sb-bcal__title--skeleton {
+  animation: sb-bcal-pulse 1.2s ease-in-out infinite;
+}
+
+.sb-bcal__cell--skeleton {
+  background: var(--sb-soft);
+}
+
+.sb-bcal__title--skeleton {
+  display: block;
+  width: 10rem;
+  height: 1.25rem;
+  border-radius: 0.25rem;
+  background: var(--sb-soft);
+}
+
+@keyframes sb-bcal-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-bcal__cell--skeleton,
+  .sb-bcal__title--skeleton {
+    animation: none;
+  }
+}
+
+@container (max-width: 640px) {
+  .sb-bcal__cell.sb-bcal__cell--skeleton {
+    display: block;
+    height: 3.5rem;
+    margin-bottom: 0.5rem;
+    border-radius: 0.5rem;
+  }
+}
+
+/* Add-on card: greyed month while its dates load. */
+.sb-addon__day--skeleton {
+  display: block;
+  background: var(--sb-soft);
+  cursor: default;
+  animation: sb-pulse 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-addon__day--skeleton {
+    animation: none;
+  }
+}
