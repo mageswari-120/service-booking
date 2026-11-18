@@ -18,6 +18,13 @@ export interface OutgoingEmail {
 
 export type SendResult = { ok: true; id: string | null } | { ok: false; skipped?: boolean; error: string };
 
+const TEST_SENDER_HINT =
+  "EMAIL_FROM uses Resend's test sender (@resend.dev), which only delivers to the Resend " +
+  "account owner's own address. Verify a domain at resend.com/domains and set " +
+  'EMAIL_FROM="Bookings <bookings@your-verified-domain>" (in .env and on the host).';
+
+let warnedTestSender = false;
+
 export async function sendEmail(email: OutgoingEmail): Promise<SendResult> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -25,6 +32,11 @@ export async function sendEmail(email: OutgoingEmail): Promise<SendResult> {
     return { ok: false, skipped: true, error: "RESEND_API_KEY not set" };
   }
   const from = process.env.EMAIL_FROM || "Bookings <onboarding@resend.dev>";
+  const testSender = /@resend\.dev>?\s*$/i.test(from);
+  if (testSender && !warnedTestSender) {
+    warnedTestSender = true;
+    console.warn(`[email] ${TEST_SENDER_HINT}`);
+  }
 
   try {
     const res = await fetch("https://api.resend.com/emails", {
@@ -41,7 +53,10 @@ export async function sendEmail(email: OutgoingEmail): Promise<SendResult> {
       signal: AbortSignal.timeout(8000),
     });
     const body = (await res.json().catch(() => ({}))) as { id?: string; message?: string };
-    if (!res.ok) return { ok: false, error: `Resend ${res.status}: ${body.message ?? "unknown error"}` };
+    if (!res.ok) {
+      const error = `Resend ${res.status}: ${body.message ?? "unknown error"}`;
+      return { ok: false, error: res.status === 403 && testSender ? `${error} — ${TEST_SENDER_HINT}` : error };
+    }
     return { ok: true, id: body.id ?? null };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };

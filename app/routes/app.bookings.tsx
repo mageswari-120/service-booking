@@ -1,8 +1,11 @@
-import type { LoaderFunctionArgs } from "@remix-run/node";
-import { useLoaderData, useSearchParams } from "@remix-run/react";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
+import { useFetcher, useLoaderData, useSearchParams } from "@remix-run/react";
+import { useAppBridge } from "@shopify/app-bridge-react";
+import { useEffect } from "react";
 import {
   Badge,
   BlockStack,
+  Button,
   Card,
   EmptyState,
   IndexTable,
@@ -14,6 +17,7 @@ import {
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { getOrCreateShop } from "../lib/shop.server";
+import { lookupShopName, sendBookingConfirmation } from "../lib/bookings/confirmation.server";
 
 const PAGE_SIZE = 50;
 
@@ -47,6 +51,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         customerPhone: true,
         shopifyOrderId: true,
         shopifyOrderName: true,
+        confirmationSentAt: true,
         service: { select: { title: true } },
       },
     }),
@@ -77,11 +82,56 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       customerEmail: b.customerEmail,
       customerPhone: b.customerPhone,
       orderName: b.shopifyOrderName,
+      emailSent: !!b.confirmationSentAt,
       // Stored as a GID (gid://shopify/Order/123); the admin URL wants the number.
       orderId: b.shopifyOrderId.split("/").pop() ?? null,
     })),
   };
 };
+
+type ResendResult = { ok: true } | { ok: false; error: string };
+
+/** Manual (re)send of a booking's confirmation email from the list. */
+export const action = async ({ request }: ActionFunctionArgs): Promise<ResendResult> => {
+  const { admin, session } = await authenticate.admin(request);
+  const form = await request.formData();
+  if (form.get("intent") !== "resend-confirmation") return { ok: false, error: "Unknown action" };
+
+  const bookingId = String(form.get("bookingId") ?? "");
+  const shop = await getOrCreateShop(session.shop, admin);
+  // Only this shop's bookings.
+  const owned = await db.booking.findFirst({ where: { id: bookingId, shopId: shop.id }, select: { id: true } });
+  if (!owned) return { ok: false, error: "Booking not found" };
+
+  const shopName = await lookupShopName(session.shop, admin);
+  const result = await sendBookingConfirmation(bookingId, { shopName, force: true });
+  if (result.ok) return { ok: true };
+  if (result.reason === "not-eligible") {
+    return { ok: false, error: "Only confirmed bookings with an email can be sent" };
+  }
+  return { ok: false, error: result.error ?? "Email could not be sent" };
+};
+
+function ResendEmailButton({ bookingId, sent }: { bookingId: string; sent: boolean }) {
+  const fetcher = useFetcher<ResendResult>();
+  const shopify = useAppBridge();
+  useEffect(() => {
+    if (fetcher.state !== "idle" || !fetcher.data) return;
+    if (fetcher.data.ok) shopify.toast.show("Confirmation email sent");
+    else shopify.toast.show(fetcher.data.error, { isError: true });
+  }, [fetcher.state, fetcher.data, shopify]);
+
+  return (
+    <Button
+      size="micro"
+      variant="plain"
+      loading={fetcher.state !== "idle"}
+      onClick={() => fetcher.submit({ intent: "resend-confirmation", bookingId }, { method: "post" })}
+    >
+      {sent ? "Resend email" : "Send email"}
+    </Button>
+  );
+}
 
 const STATUS_BADGE: Record<string, { label: string; tone?: "success" | "critical" | "warning" | "info" }> = {
   CONFIRMED: { label: "Confirmed", tone: "success" },
@@ -119,6 +169,7 @@ export default function Bookings() {
               { title: "Customer" },
               { title: "Seats" },
               { title: "Status" },
+              { title: "Email" },
               { title: "Order" },
             ]}
             pagination={{
@@ -156,6 +207,18 @@ export default function Bookings() {
                   <IndexTable.Cell>{b.seats}</IndexTable.Cell>
                   <IndexTable.Cell>
                     <Badge tone={badge.tone}>{badge.label}</Badge>
+                  </IndexTable.Cell>
+                  <IndexTable.Cell>
+                    {b.status === "CONFIRMED" && b.customerEmail ? (
+                      <BlockStack gap="100" inlineAlign="start">
+                        <Badge tone={b.emailSent ? "success" : "warning"}>
+                          {b.emailSent ? "Sent" : "Not sent"}
+                        </Badge>
+                        <ResendEmailButton bookingId={b.id} sent={b.emailSent} />
+                      </BlockStack>
+                    ) : (
+                      "—"
+                    )}
                   </IndexTable.Cell>
                   <IndexTable.Cell>
                     {b.orderId ? (
