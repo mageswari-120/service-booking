@@ -316,6 +316,7 @@
             addBtn: null,
             compact: true,
             initial: pendingInitial,
+            upsells: root.querySelector("template[data-sb-upsells]"),
             extraItems: self ? null : productLine,
             taken: function () {
               showPickers();
@@ -617,10 +618,11 @@
     function total() {
       // Appointments are free: only the product is charged. In self mode the
       // product is the booked line, one per seat; an add-on's service variant
-      // is never added to the cart.
-      if (self) return Number(root.dataset.servicePrice) * seats();
+      // is never added to the cart. Ticked add-on products are added on top.
+      var extra = step2 && step2.extraTotal ? step2.extraTotal() : 0;
+      if (self) return Number(root.dataset.servicePrice) * seats() + extra;
       var id = formValue("id");
-      return (Number(prices[id]) || 0) * (Number(formValue("quantity")) || 1);
+      return (Number(prices[id]) || 0) * (Number(formValue("quantity")) || 1) + extra;
     }
 
     /** First non-blank text node: the label, whatever the theme wraps it in. */

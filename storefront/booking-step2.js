@@ -11,8 +11,9 @@
  * Every rule here is re-checked by the hold endpoint (validateHoldDetails).
  *
  * Also used by booking-addon.js (the "On the page" add-on card) with:
- *   ctx.compact     — render only people / questions / signature (the card
- *                     shows its own summary; it has no add-ons or back button)
+ *   ctx.compact     — no back button or time summary (the card shows its own);
+ *                     people / questions / signature / add-ons as usual
+ *   ctx.upsells     — the block's <template data-sb-upsells> (add-on products)
  *   ctx.addBtn      — may be null: the caller runs the returned submit()
  *   ctx.extraItems  — () => the product line the service is an add-on to; the
  *                     booking's properties go on it (the service variant
@@ -20,8 +21,9 @@
  *   ctx.done        — after the cart add; default: go to /cart
  *   ctx.initial     — { seats, answers } to prefill with, from a card this one
  *                     replaced (the signature is never carried over)
- * Returns { submit, empty, seats, values } — `empty` when no fields were
- * rendered; `values()` reports what has been filled in so far.
+ * Returns { submit, empty, seats, values, extraTotal } — `empty` when no fields
+ * were rendered; `values()` reports what has been filled in so far;
+ * `extraTotal()` is the ticked add-ons' price in cents.
  *
  * After the add: the block's data-after-add="drawer" (read from ctx.root)
  * opens the theme's cart drawer, closing the caller's open <dialog> first;
@@ -148,12 +150,12 @@
 
     // --- Add-ons (rendered by the block in Liquid) ---------------------------
     var addons = [];
-    var rows = ctx.upsells && !ctx.compact ? ctx.upsells.content.querySelectorAll("[data-id]") : [];
+    var rows = ctx.upsells ? ctx.upsells.content.querySelectorAll("[data-id]") : [];
     if (rows.length) {
       var list = el("div", { class: "sb-upsells" });
       Array.prototype.forEach.call(rows, function (tpl) {
         var row = tpl.cloneNode(true);
-        var item = { id: Number(row.dataset.id), qty: 1, on: false };
+        var item = { id: Number(row.dataset.id), price: Number(row.dataset.price) || 0, qty: 1, on: false };
         var toggle = el("button", {
           type: "button",
           class: "sb-upsell__add",
@@ -440,6 +442,10 @@
       empty: !parts.length,
       seats: function () { return seats; },
       values: values,
+      // Cents for the add-ons ticked so far (the card's button total).
+      extraTotal: function () {
+        return addons.reduce(function (sum, a) { return sum + (a.on ? a.price * a.qty : 0); }, 0);
+      },
     };
   };
 

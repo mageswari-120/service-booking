@@ -30,11 +30,36 @@
     metafield (set by "Offer as an add-on on" in the app): the customer ticks
     "Add <service>", picks a date and time, and the theme's own add-to-cart
     adds the product with the booking on it. Both modes start unticked;
-    ticking opens the calendar.
+    ticking opens the calendar. The service's add-on products (upsells) are
+    offered under the details once a time is picked, as in the popup.
+
+    With "In a popup", a product that has no bookable variant but carries an
+    addon_service still renders this card, so one template serves both.
 {%- endcomment -%}
 
 {%- if product -%}
-  {%- if block.settings.display == 'inline' -%}
+  {%- liquid
+    comment
+      One product template serves both service products and the products a
+      service is offered on. So with "In a popup", a product with no bookable
+      variant that carries an add-on service still gets the add-on card:
+      otherwise "Offer as an add-on on" would need a second template.
+    endcomment
+    assign sb_any_bookable = false
+    for v in product.variants
+      if v.metafields.service_booking.bookable == true
+        assign sb_any_bookable = true
+        break
+      endif
+    endfor
+    assign sb_inline = false
+    if block.settings.display == 'inline'
+      assign sb_inline = true
+    elsif sb_any_bookable == false and product.metafields.service_booking.addon_service.value != blank
+      assign sb_inline = true
+    endif
+  -%}
+  {%- if sb_inline -%}
     {%- liquid
       comment
         The selected variant's own service wins (with its own appointment
@@ -105,6 +130,9 @@
         data-i18n-signature-help="{{ 'booking.signature_help' | t | escape }}"
         data-i18n-clear-signature="{{ 'booking.clear_signature' | t | escape }}"
         data-i18n-adding="{{ 'booking.adding' | t | escape }}"
+        data-i18n-add-these="{{ 'booking.add_these' | t | escape }}"
+        data-i18n-add="{{ 'booking.add' | t | escape }}"
+        data-i18n-added="{{ 'booking.added' | t | escape }}"
         data-i18n-appointment-date="{{ 'booking.appointment_date' | t | escape }}"
         data-i18n-appointment-time="{{ 'booking.appointment_time' | t | escape }}"
         data-i18n-duration="{{ 'booking.duration' | t | escape }}"
@@ -186,6 +214,29 @@
           <div class="sb-details" data-sb-details hidden></div>
           <p class="sb-addon__status" role="status" aria-live="polite" data-sb-status></p>
         </div>
+        {%- comment -%} The service's "Add-on products", shown under the details once a time is picked. {%- endcomment -%}
+        {%- assign upsells = sb_service.metafields.service_booking.upsells.value -%}
+        {%- if upsells != blank -%}
+          <template data-sb-upsells data-for="{{ sb_service.id }}">
+            {%- for u in upsells -%}
+              {%- if u.available -%}
+                <div class="sb-upsell" data-id="{{ u.id }}" data-price="{{ u.price }}" data-title="{{ u.product.title | escape }}">
+                  {%- assign img = u.image | default: u.product.featured_image -%}
+                  {%- if img -%}
+                    {{ img | image_url: width: 120 | image_tag: class: 'sb-upsell__img', loading: 'lazy', alt: '' }}
+                  {%- endif -%}
+                  <div class="sb-upsell__info">
+                    <span class="sb-upsell__title">{{ u.product.title | escape }}</span>
+                    {%- unless u.product.has_only_default_variant -%}
+                      <small>{{ u.title | escape }}</small>
+                    {%- endunless -%}
+                  </div>
+                  <span class="sb-upsell__price">{% if u.price == 0 %}{{ 'booking.free' | t }}{% else %}{{ u.price | money }}{% endif %}</span>
+                </div>
+              {%- endif -%}
+            {%- endfor -%}
+          </template>
+        {%- endif -%}
       </div>
       <script src="{{ 'booking-addon.js' | asset_url }}" defer></script>
     {%- endif -%}
@@ -250,7 +301,7 @@
           <template data-sb-upsells data-for="{{ v.id }}">
             {%- for u in upsells -%}
               {%- if u.available -%}
-                <div class="sb-upsell" data-id="{{ u.id }}" data-title="{{ u.product.title | escape }}">
+                <div class="sb-upsell" data-id="{{ u.id }}" data-price="{{ u.price }}" data-title="{{ u.product.title | escape }}">
                   {%- assign img = u.image | default: u.product.featured_image -%}
                   {%- if img -%}
                     {{ img | image_url: width: 120 | image_tag: class: 'sb-upsell__img', loading: 'lazy', alt: '' }}
@@ -316,7 +367,7 @@
       "type": "select",
       "id": "display",
       "label": "Calendar display",
-      "info": "In a popup: on a service's own product page, opens the calendar from the add-to-cart button. On the page: shows the service as an add-on card with its calendar, on products chosen under \"Offer as an add-on on\" in the app.",
+      "info": "In a popup: on a service's own product page, opens the calendar from the add-to-cart button; products chosen under \"Offer as an add-on on\" still show the add-on card. On the page: every product shows the add-on card with its calendar, including the service's own page.",
       "options": [
         { "value": "popup", "label": "In a popup" },
         { "value": "inline", "label": "On the page" }
