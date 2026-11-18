@@ -300,12 +300,13 @@ export function parseServiceInput(input: ServiceFormInput): ParseResult {
       startMinute = start;
       endMinute = end;
     }
-    const capacity = optionalInt(o.capacity, 1, MAX_SEATS);
+    // 0 closes the date (or those hours): no slots are offered.
+    const capacity = optionalInt(o.capacity, 0, MAX_SEATS);
     if (capacity === null || capacity === "invalid") {
-      errors[key] = `Limit must be a whole number between 1 and ${MAX_SEATS}.`;
+      errors[key] = `Limit must be a whole number between 0 (closed) and ${MAX_SEATS}.`;
       return;
     }
-    largestLimit.push(capacity);
+    if (capacity > 0) largestLimit.push(capacity);
     capacityOverrides.push({ date, startMinute, endMinute, capacity });
   });
 

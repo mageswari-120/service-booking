@@ -104,6 +104,21 @@ describe("parseServiceInput", () => {
       ]);
     });
 
+    it("accepts a 0 override limit to close a date or hours", () => {
+      const result = parseServiceInput(
+        valid({
+          capacityOverrides: [
+            { date: "2027-12-25", start: "", end: "", capacity: "0" },
+            { date: "2027-12-26", start: "14:00", end: "16:00", capacity: "0" },
+          ],
+        }),
+      );
+      expect(result.ok && result.data.capacityOverrides).toEqual([
+        { date: "2027-12-25", startMinute: null, endMinute: null, capacity: 0 },
+        { date: "2027-12-26", startMinute: 840, endMinute: 960, capacity: 0 },
+      ]);
+    });
+
     it("rejects bad override dates, half-filled times and empty limits", () => {
       const errors = errorsOf(
         valid({

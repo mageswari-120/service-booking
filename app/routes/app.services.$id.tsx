@@ -826,7 +826,8 @@ export default function ServiceEditor() {
                 <Text as="p" tone="subdued">
                   A different limit on particular dates, for the whole day or
                   between two times. These replace the weekly limits on that
-                  date.
+                  date. Set the limit to 0 to close that date (or those
+                  hours), for example on a holiday.
                 </Text>
                 {form.capacityOverrides.map((o, index) => (
                   <BlockStack key={index} gap="100">
@@ -856,7 +857,7 @@ export default function ServiceEditor() {
                         <TextField
                           label="Limit"
                           type="number"
-                          min={1}
+                          min={0}
                           value={String(o.capacity)}
                           onChange={(capacity) => updateOverride(index, { capacity })}
                           autoComplete="off"
@@ -869,6 +870,11 @@ export default function ServiceEditor() {
                         onClick={() => removeOverride(index)}
                       />
                     </InlineStack>
+                    {String(o.capacity).trim() === "0" ? (
+                      <Text as="p" tone="subdued" variant="bodySm">
+                        Closed: no bookings{o.start || o.end ? " in these hours" : " on this date"}.
+                      </Text>
+                    ) : null}
                     {errors[`capacityOverrides.${index}`] ? (
                       <InlineError
                         message={errors[`capacityOverrides.${index}`]}

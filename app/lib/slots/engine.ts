@@ -227,6 +227,8 @@ export function computeSlots({
         if (blackouts.some((b) => overlaps(blocked, b))) continue;
 
         const capacity = capacityAt(service, window, overrides, localDate, minute);
+        // A 0 limit closes the slot: never offered, not even as booked out.
+        if (capacity <= 0) continue;
         const remaining = capacity - (usageMap.get(key) ?? 0);
         const full = remaining <= 0 || remaining < minUnits;
         if (full && !includeFull) continue;

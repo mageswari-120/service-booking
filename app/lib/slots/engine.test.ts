@@ -322,6 +322,34 @@ describe("computeSlots — capacity", () => {
     expect(morning.map((s) => s.capacity)).toEqual([8, 3, 8]);
   });
 
+  it("closes a date or a time range with a 0 override, even with includeFull", () => {
+    const windows = [{ dayOfWeek: 2, startMinute: h(9), endMinute: h(12) }];
+    const service = geometry({ capacityPerSlot: 10 });
+    const range = dayRange(NY, "2027-06-01");
+
+    const closedDay = computeSlots(
+      params({
+        service,
+        windows,
+        overrides: [{ date: "2027-06-01", startMinute: null, endMinute: null, capacity: 0 }],
+        includeFull: true,
+        ...range,
+      }),
+    );
+    expect(closedDay).toEqual([]);
+
+    const closedHour = computeSlots(
+      params({
+        service,
+        windows,
+        overrides: [{ date: "2027-06-01", startMinute: h(10), endMinute: h(11), capacity: 0 }],
+        includeFull: true,
+        ...range,
+      }),
+    );
+    expect(localTimes(closedHour, NY)).toEqual(["09:00", "11:00"]);
+  });
+
   it("hides a slot whose free seats can't fit the smallest allowed booking", () => {
     const nine = at(NY, "2027-06-01T09:00");
     const slots = computeSlots(
