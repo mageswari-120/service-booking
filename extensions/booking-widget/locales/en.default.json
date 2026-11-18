@@ -32,6 +32,7 @@
     "hour_12": "AM/PM",
     "hour_24": "24h",
     "addon_label": "Add {{ title }}",
+    "free": "Free",
     "choose_date": "Choose a date",
     "available_times": "Available times",
     "times_note": "All times shown in {{ zone }} · {{ minutes }} minutes per session",

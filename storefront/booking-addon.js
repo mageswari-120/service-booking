@@ -54,7 +54,6 @@
     var form = findProductForm(root);
     var section = (form && form.closest(".shopify-section")) || root.closest(".shopify-section");
     var prices = pairs(root.dataset.prices, ",");
-    var variantTitles = pairs(root.dataset.variantTitles, "|");
     var step2 = null; // booking-step2's { submit, empty, seats, values } once a time is picked
     var pendingInitial = null; // step 2 values rescued from the card this one replaced
 
@@ -144,7 +143,16 @@
      * the section replaces this card; the old one's listeners must go quiet.
      */
     function live() {
-      return root.isConnected && !root.hidden;
+      return root.isConnected && !root.hidden && !stale();
+    }
+
+    // Liquid picks the service for the variant selected at render time: its
+    // own (self) or else the product's add-on. A theme that switches variants
+    // without re-rendering leaves this card on the wrong service: sit it out.
+    var bookable = (root.dataset.bookableVariants || "").split(",");
+    function stale() {
+      var id = formValue("id");
+      return !!id && (self ? id !== root.dataset.variantId : bookable.indexOf(id) >= 0);
     }
 
     function on() {
@@ -607,10 +615,12 @@
     }
 
     function total() {
-      var service = Number(root.dataset.servicePrice) * seats();
-      if (self) return service;
+      // Appointments are free: only the product is charged. In self mode the
+      // product is the booked line, one per seat; an add-on's service variant
+      // is never added to the cart.
+      if (self) return Number(root.dataset.servicePrice) * seats();
       var id = formValue("id");
-      return (Number(prices[id]) || 0) * (Number(formValue("quantity")) || 1) + service;
+      return (Number(prices[id]) || 0) * (Number(formValue("quantity")) || 1);
     }
 
     /** First non-blank text node: the label, whatever the theme wraps it in. */
@@ -621,9 +631,10 @@
       return node;
     }
 
-    /** Relabel the theme's button with the total (or restore it), and the hint under it. */
+    /** Relabel the theme's button with the total (or restore it). */
     function sync() {
       if (!root.isConnected) return; // replaced by a re-render: the new card owns the button
+      root.style.display = stale() ? "none" : "";
       remember();
       var active = on();
       // Hides "Buy it now", which would skip the booking (booking.css).
@@ -638,22 +649,6 @@
         if (node.nodeValue !== want) node.nodeValue = want;
         btn.__sbSet = want;
       }
-      if (self) return;
-      // Kept on the button, so a re-initialised card reuses it.
-      var hint = btn.__sbHint;
-      if (!hint) {
-        // Under the button's row (often quantity + button side by side).
-        var anchor = btn;
-        if (form.contains(btn)) while (anchor.parentElement !== form) anchor = anchor.parentElement;
-        hint = btn.__sbHint = el("p", { class: "sb-addon__hint" });
-        anchor.insertAdjacentElement("afterend", hint);
-      }
-      var variant = variantTitles[formValue("id")];
-      hint.hidden = !active || !step2;
-      hint.textContent = t("AddsItems", {
-        product: root.dataset.productTitle + (variant ? " (" + variant + ")" : ""),
-        service: root.dataset.serviceTitle,
-      });
     }
 
     /** Drop this instance's page-level listeners and timer once it is gone. */

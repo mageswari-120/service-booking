@@ -592,8 +592,9 @@ export default function ServiceEditor() {
                   Product
                 </Text>
                 <Text as="p" tone="subdued">
-                  Customers buy this variant to book. Its price is the price of
-                  the appointment.
+                  Customers book with this variant; it is never charged.
+                  Appointments are free — shoppers pay only for the product they
+                  book with.
                 </Text>
                 <InlineStack gap="300" blockAlign="center">
                   <Text as="span" fontWeight="semibold">

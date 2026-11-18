@@ -14,8 +14,9 @@
  *   ctx.compact     — render only people / questions / signature (the card
  *                     shows its own summary; it has no add-ons or back button)
  *   ctx.addBtn      — may be null: the caller runs the returned submit()
- *   ctx.extraItems  — () => cart items added before the booking line (the
- *                     product the service is an add-on to)
+ *   ctx.extraItems  — () => the product line the service is an add-on to; the
+ *                     booking's properties go on it (the service variant
+ *                     itself isn't added: appointments are free)
  *   ctx.done        — after the cart add; default: go to /cart
  *   ctx.initial     — { seats, answers } to prefill with, from a card this one
  *                     replaced (the signature is never carried over)
@@ -290,12 +291,21 @@
       if (hold.expiresAt) props._booking_expires = hold.expiresAt;
 
       var extra = ctx.extraItems ? ctx.extraItems() : [];
-      // The product this service was booked with (add-on card): the cart
-      // embed notes the appointment under that product's line too.
-      if (extra.length && extra[0].id) props._booking_for = String(extra[0].id);
-      var items = extra.concat([
-        { id: Number(state.variantId), quantity: seats, properties: props },
-      ]);
+      var items;
+      if (extra.length) {
+        // Add-on card: the service variant only identifies the booking and is
+        // never charged, so the appointment rides on the product's own line
+        // (the order webhook finds the service through the hold token).
+        var line = extra[0];
+        var merged = {};
+        var k;
+        for (k in line.properties || {}) merged[k] = line.properties[k];
+        for (k in props) merged[k] = props[k];
+        line.properties = merged;
+        items = extra;
+      } else {
+        items = [{ id: Number(state.variantId), quantity: seats, properties: props }];
+      }
       addons.forEach(function (a) {
         if (a.on) items.push({ id: a.id, quantity: a.qty });
       });

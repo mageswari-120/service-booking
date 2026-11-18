@@ -23,27 +23,30 @@
     can't be found.
 
   inline ("On the page") — an add-on card, driven by booking-addon.js.
-    The service comes from the product's service_booking.addon_service
+    When the selected variant is itself a bookable service, the card books it
+    directly ("self" mode: only the booking is added, and the theme's button
+    opens the card rather than adding the service without a time). Otherwise
+    the service comes from the product's service_booking.addon_service
     metafield (set by "Offer as an add-on on" in the app): the customer ticks
     "Add <service>", picks a date and time, and the theme's own add-to-cart
-    adds the product and the booking together. When the product has no add-on
-    service but is itself a bookable service, the card books it directly
-    ("self" mode: only the booking is added, and the theme's button opens the
-    card rather than adding the service without a time). Both modes start
-    unticked; ticking opens the calendar.
+    adds the product with the booking on it. Both modes start unticked;
+    ticking opens the calendar.
 {%- endcomment -%}
 
 {%- if product -%}
   {%- if block.settings.display == 'inline' -%}
     {%- liquid
-      assign sb_service = product.metafields.service_booking.addon_service.value
+      comment
+        The selected variant's own service wins (with its own appointment
+        price); other variants fall back to the product's add-on service.
+      endcomment
+      assign sb_own = product.selected_or_first_available_variant
       assign sb_self = false
-      if sb_service == blank
-        assign sb_own = product.selected_or_first_available_variant
-        if sb_own.metafields.service_booking.bookable == true
-          assign sb_service = sb_own
-          assign sb_self = true
-        endif
+      if sb_own.metafields.service_booking.bookable == true
+        assign sb_service = sb_own
+        assign sb_self = true
+      else
+        assign sb_service = product.metafields.service_booking.addon_service.value
       endif
     -%}
     {%- if sb_service != blank -%}
@@ -74,12 +77,12 @@
         data-after-add="{{ block.settings.after_add }}"
         {% if sb_self %}data-self{% endif %}
         data-variant-id="{{ sb_service.id }}"
+        data-bookable-variants="{%- for v in product.variants -%}{%- if v.metafields.service_booking.bookable == true -%}{{ v.id }},{%- endif -%}{%- endfor -%}"
         data-service-title="{{ sb_service.product.title | escape }}"
         data-service-price="{{ sb_service.price }}"
         data-money-format="{{ shop.money_format | strip_html | escape_once }}"
         data-prices="{%- for v in product.variants -%}{{ v.id }}:{{ v.price }}{%- unless forloop.last -%},{%- endunless -%}{%- endfor -%}"
         data-product-title="{{ product.title | escape }}"
-        data-variant-titles="{%- unless product.has_only_default_variant -%}{%- for v in product.variants -%}{{ v.id }}:{{ v.title | replace: '|', '/' | escape }}{%- unless forloop.last -%}|{%- endunless -%}{%- endfor -%}{%- endunless -%}"
         data-proxy="/apps/booking"
         data-step2-src="{{ 'booking-step2.js' | asset_url }}"
         data-week-start="{{ block.settings.week_start }}"
@@ -94,7 +97,6 @@
         data-i18n-times-note="{{ 'booking.times_note' | t: zone: '__ZONE__', minutes: '__MINUTES__' | escape }}"
         data-i18n-minutes="{{ 'booking.minutes' | t: count: '__COUNT__' | escape }}"
         data-i18n-add-with-total="{{ 'booking.add_with_total' | t: total: '__TOTAL__' | escape }}"
-        data-i18n-adds-items="{{ 'booking.adds_items' | t: product: '__PRODUCT__', service: '__SERVICE__' | escape }}"
         data-i18n-people="{{ 'booking.people' | t | escape }}"
         data-i18n-people-help="{{ 'booking.people_help' | t: max: '__MAX__' | escape }}"
         data-i18n-people-help-range="{{ 'booking.people_help_range' | t: min: '__MIN__', max: '__MAX__' | escape }}"
@@ -153,10 +155,11 @@
               <span class="sb-addon__desc">{{ sb_desc | escape }}</span>
             {%- endif -%}
           </span>
-          <span class="sb-addon__price">
-            {%- unless sb_self %}+ {% endunless -%}
-            {{- sb_service.price | money -}}
-          </span>
+          {%- comment -%}
+            Appointments are always free: the service variant is never added
+            to the cart, so only the product the shopper buys is charged.
+          {%- endcomment -%}
+          <span class="sb-addon__price">{{ 'booking.free' | t }}</span>
         </div>
         <div class="sb-addon__body" data-sb-body hidden>
           <div data-sb-pickers>
@@ -258,7 +261,7 @@
                       <small>{{ u.title | escape }}</small>
                     {%- endunless -%}
                   </div>
-                  <span class="sb-upsell__price">{{ u.price | money }}</span>
+                  <span class="sb-upsell__price">{% if u.price == 0 %}{{ 'booking.free' | t }}{% else %}{{ u.price | money }}{% endif %}</span>
                 </div>
               {%- endif -%}
             {%- endfor -%}
