@@ -45,6 +45,7 @@ export async function sendBookingConfirmation(
     where: { id: bookingId },
     include: {
       service: { select: { title: true, timezone: true } },
+      staff: { select: { name: true } },
       shop: { select: { timezone: true, contactEmail: true } },
     },
   });
@@ -65,6 +66,7 @@ export async function sendBookingConfirmation(
     endsAt: booking.endsAt,
     timezone: resolveTimezone(booking.service.timezone, booking.shop.timezone),
     seats: booking.seats,
+    staffName: booking.staff?.name ?? null,
     orderName: booking.shopifyOrderName,
     bookingId: booking.id,
     customerName: booking.customerName,

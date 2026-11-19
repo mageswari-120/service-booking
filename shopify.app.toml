@@ -29,7 +29,7 @@ embedded = true
 # access → Protected customer data: Name, Email, Phone). It is unavoidable for
 # a booking app — a confirmation email has to go somewhere.
 # https://shopify.dev/docs/apps/launch/protected-customer-data
-scopes = "read_products,write_products,read_orders,write_app_proxy"
+scopes = "read_products,write_products,read_orders,write_app_proxy,read_publications,write_publications"
 
 [auth]
 redirect_urls = [ "https://example.com/api/auth" ]

@@ -1,0 +1,258 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<style>
+:root{
+  --sb-accent:#1f2a6b; --sb-on-accent:#fff; --sb-radius:.55rem;
+  --sb-bg:#fff; --sb-fg:#1a1a1a; --sb-border:rgba(0,0,0,.14);
+  --sb-soft:rgba(0,0,0,.05); --sb-muted:rgba(0,0,0,.55);
+}
+*{box-sizing:border-box}
+body{margin:0;background:#e9e9ec;font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--sb-fg)}
+.screen{width:860px;margin:0;padding:26px;background:#dfe0e4}
+.modal{background:var(--sb-bg);border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.18)}
+.m-head{padding:20px 24px 16px;border-bottom:1px solid var(--sb-border);position:relative}
+.m-head h2{margin:0 0 .25rem;font-size:1.3rem;line-height:1.25;font-weight:600}
+.m-head .tz{margin:0;font-size:.82rem;color:var(--sb-muted)}
+.m-head .note{margin:.35rem 0 0;font-size:.86rem}
+.x{position:absolute;top:18px;right:20px;width:26px;height:26px;border-radius:50%;
+   display:grid;place-items:center;color:var(--sb-muted);font-size:1.1rem}
+.m-body{padding:20px 24px 24px}
+.lbl{font-weight:600;margin:0 0 .15rem;font-size:.98rem}
+.hint{margin:0 0 .85rem;font-size:.85rem;color:var(--sb-muted)}
+
+/* service grid */
+.svcs{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem}
+.svc{position:relative;display:grid;grid-template-columns:auto 1fr;gap:.7rem;align-items:start;
+  padding:.7rem .8rem;border:1px solid var(--sb-border);border-radius:var(--sb-radius)}
+.svc.on{border-color:var(--sb-accent);box-shadow:inset 0 0 0 1px var(--sb-accent);
+  background:color-mix(in srgb,var(--sb-accent) 6%,transparent)}
+.th{width:2.9rem;height:2.9rem;border-radius:.45rem;display:grid;place-items:center;flex:none}
+.sv-b{min-width:0;padding-right:1.3rem}
+.sv-t{display:block;font-weight:500;font-size:.9rem;line-height:1.3}
+.sv-m{display:block;margin-top:.22rem;font-size:.8rem;color:var(--sb-muted)}
+.sv-m b{color:var(--sb-fg);font-weight:600}
+.tick{position:absolute;top:.55rem;right:.6rem;width:1.05rem;height:1.05rem;border-radius:50%;
+  border:1.5px solid var(--sb-border);display:grid;place-items:center}
+.svc.on .tick{background:var(--sb-accent);border-color:var(--sb-accent)}
+
+/* chosen row */
+.chosen{display:flex;align-items:center;gap:.8rem;padding:.8rem 0;border-bottom:1px solid var(--sb-border);margin-bottom:1.1rem}
+.chosen .sv-t{font-size:.98rem;font-weight:600}
+.chg{margin-left:auto;font-size:.88rem;text-decoration:underline;color:var(--sb-fg);white-space:nowrap}
+
+/* calendar */
+.cal-wrap{display:grid;grid-template-columns:1fr 1fr;gap:1.6rem}
+.cal-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:.7rem}
+.cal-top h3{margin:0;font-size:1rem;font-weight:600}
+.nav{width:1.7rem;height:1.7rem;border:1px solid var(--sb-border);border-radius:50%;display:grid;place-items:center;color:var(--sb-muted);font-size:.85rem}
+.grid{display:grid;grid-template-columns:repeat(7,1fr);gap:.2rem;text-align:center}
+.dow{font-size:.68rem;letter-spacing:.04em;color:var(--sb-muted);padding:.3rem 0;font-weight:600}
+.d{padding:.5rem 0;border-radius:.4rem;font-size:.88rem;color:var(--sb-fg)}
+.d.off{color:rgba(0,0,0,.22)}
+.d.open{background:var(--sb-soft);font-weight:500}
+.d.sel{background:var(--sb-accent);color:#fff;font-weight:600}
+.d.black{background:rgba(0,0,0,.1);color:rgba(0,0,0,.3);text-decoration:line-through}
+.times h3{margin:0 0 .7rem;font-size:1rem;font-weight:600;display:flex;align-items:center;gap:.6rem}
+.seg{margin-left:auto;display:flex;border:1px solid var(--sb-border);border-radius:999px;overflow:hidden;font-size:.74rem}
+.seg span{padding:.22rem .55rem;color:var(--sb-muted)}
+.seg span.on{background:var(--sb-accent);color:#fff;font-weight:600}
+.slot{display:flex;align-items:center;padding:.6rem .8rem;border:1px solid var(--sb-border);
+  border-radius:var(--sb-radius);margin-bottom:.4rem;font-size:.92rem;font-weight:500}
+.slot.gone{color:rgba(0,0,0,.3);text-decoration:line-through;border-style:dashed}
+.cap{margin-left:auto;font-size:.66rem;letter-spacing:.03em;font-weight:700;color:var(--sb-muted);
+  background:var(--sb-soft);padding:.18rem .45rem;border-radius:.3rem}
+.cap.low{background:#fdeaea;color:#8a2626}
+
+/* step 2 */
+.back{font-size:.88rem;text-decoration:underline;color:var(--sb-fg);display:inline-block;margin-bottom:1rem}
+.eyebrow{font-size:.7rem;letter-spacing:.09em;text-transform:uppercase;color:var(--sb-muted);margin:0 0 .35rem;font-weight:700}
+.pick{border:1px solid var(--sb-border);border-radius:var(--sb-radius);padding:.75rem .9rem;font-weight:600;margin-bottom:1.3rem}
+.fld{margin-bottom:1.25rem}
+.fld .lbl{margin-bottom:.1rem}
+.step{display:inline-flex;align-items:center;border:1px solid var(--sb-border);border-radius:var(--sb-radius);overflow:hidden}
+.step b{padding:.45rem 1.05rem;font-weight:600;min-width:2.6rem;text-align:center}
+.step i{padding:.45rem .8rem;color:var(--sb-muted);font-style:normal;background:var(--sb-soft)}
+.chips{display:flex;gap:.45rem;flex-wrap:wrap}
+.chip{padding:.45rem .95rem;border:1px solid var(--sb-border);border-radius:999px;font-size:.88rem}
+.chip.on{background:color-mix(in srgb,var(--sb-accent) 10%,#fff);border-color:var(--sb-accent);font-weight:600;color:var(--sb-accent)}
+.ups{border:1px solid var(--sb-border);border-radius:var(--sb-radius);padding:.7rem .8rem;display:flex;gap:.8rem;align-items:center;margin-bottom:.5rem}
+.ups .th{width:2.6rem;height:2.6rem}
+.ups-i{min-width:0;flex:1}
+.ups-t{display:block;font-size:.9rem;font-weight:500}
+.ups-s{display:block;font-size:.78rem;color:var(--sb-muted)}
+.ups-p{font-weight:600;font-size:.92rem;white-space:nowrap}
+.btn-add{border:1px solid var(--sb-border);border-radius:.4rem;padding:.35rem .8rem;font-size:.84rem;font-weight:600;white-space:nowrap}
+.btn-add.on{background:color-mix(in srgb,var(--sb-accent) 10%,#fff);border-color:var(--sb-accent);color:var(--sb-accent)}
+.cta{margin-top:1.4rem;background:var(--sb-accent);color:#fff;text-align:center;padding:.95rem;
+  border-radius:var(--sb-radius);font-weight:600;font-size:1rem}
+.sign{border:1px dashed var(--sb-border);border-radius:var(--sb-radius);height:5rem;position:relative;background:#fcfcfd}
+.sign svg{position:absolute;left:1.2rem;top:1rem}
+
+/* cart */
+.cart{width:430px;margin-left:auto;background:#fff;height:100%;padding:24px;box-shadow:-8px 0 30px rgba(0,0,0,.15)}
+.cart h2{margin:0 0 1.3rem;font-size:1.5rem;text-align:center;font-weight:600}
+.ci{display:flex;gap:.9rem;padding-bottom:1.1rem;border-bottom:1px solid var(--sb-border);margin-bottom:1.1rem}
+.ci .th{width:4.2rem;height:4.2rem;border-radius:.45rem}
+.ci-t{font-size:.92rem;font-weight:600;line-height:1.35;margin:0 0 .15rem}
+.ci-v{font-size:.8rem;color:var(--sb-muted);margin:0 0 .5rem}
+.card{background:#f5f6f9;border-left:3px solid var(--sb-accent);border-radius:.3rem;padding:.6rem .7rem;font-size:.8rem;line-height:1.75}
+.card b{font-weight:600}
+.held{font-size:.74rem;color:var(--sb-muted);margin:.45rem 0 0}
+.tot{display:flex;font-size:1.05rem;font-weight:600;padding-top:.4rem}
+.tot span:last-child{margin-left:auto}
+.cbtns{display:flex;gap:.6rem;margin-top:1.4rem}
+.cbtn{flex:1;text-align:center;padding:.85rem;border-radius:var(--sb-radius);font-weight:600;font-size:.92rem;
+  background:var(--sb-accent);color:#fff}
+.cbtn.alt{background:#fff;color:var(--sb-accent);border:1px solid var(--sb-accent)}
+</style></head><body>
+
+<!-- ============ 1. SERVICE PICKER ============ -->
+<div class="screen" id="s1"><div class="modal">
+  <div class="m-head"><div class="x">✕</div>
+    <h2>Signature Cut &amp; Finish</h2>
+    <p class="tz">Timezone: Asia/Kolkata</p>
+    <p class="note">You'll receive a confirmation email after checkout.</p>
+  </div>
+  <div class="m-body">
+    <p class="lbl">Service</p><p class="hint">Choose what you'd like to book.</p>
+    <div class="svcs">
+      <label class="svc on"><span class="th" style="background:#e8edf8"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b4a86" stroke-width="1.6"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.5 7.5 20 18M8.5 16.5 20 6" stroke-linecap="round"/></svg></span>
+        <span class="sv-b"><span class="sv-t">Signature Cut &amp; Finish</span><span class="sv-m"><b>60 min</b> · ₹1,400</span></span>
+        <span class="tick"><svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.2 4.8 8.5 9.5 3.8" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></label>
+
+      <label class="svc"><span class="th" style="background:#fbeee6"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#9c6238" stroke-width="1.6"><circle cx="9" cy="9" r="5"/><path d="M13 12l6 7M9 9h.01" stroke-linecap="round"/></svg></span>
+        <span class="sv-b"><span class="sv-t">Express Blow-Dry</span><span class="sv-m"><b>30 min</b> · ₹650</span></span>
+        <span class="tick"></span></label>
+
+      <label class="svc"><span class="th" style="background:#f3eafb"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6f4a9b" stroke-width="1.6"><path d="M12 3c3 4 5 6.5 5 9a5 5 0 0 1-10 0c0-2.5 2-5 5-9z"/></svg></span>
+        <span class="sv-b"><span class="sv-t">Balayage &amp; Gloss</span><span class="sv-m"><b>180 min</b> · ₹6,800</span></span>
+        <span class="tick"></span></label>
+
+      <label class="svc"><span class="th" style="background:#e3f2ea"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2f7355" stroke-width="1.6"><path d="M4 14c4-1 6-3 8-7 2 4 4 6 8 7M6 18h12" stroke-linecap="round"/></svg></span>
+        <span class="sv-b"><span class="sv-t">Deep Tissue Massage</span><span class="sv-m"><b>90 min</b> · ₹2,600</span></span>
+        <span class="tick"></span></label>
+
+      <label class="svc"><span class="th" style="background:#fdeef2"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#a8436a" stroke-width="1.6"><path d="M12 20s-7-4.3-7-9a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 4.7-7 9-7 9z"/></svg></span>
+        <span class="sv-b"><span class="sv-t">Bridal Hair Trial</span><span class="sv-m"><b>120 min</b> · ₹9,500</span></span>
+        <span class="tick"></span></label>
+
+      <label class="svc"><span class="th" style="background:#e6f0f7"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2d6a8e" stroke-width="1.6"><circle cx="12" cy="6" r="2.2"/><path d="M12 9v5m0 0-3 6m3-6 3 6M7 11h10" stroke-linecap="round"/></svg></span>
+        <span class="sv-b"><span class="sv-t">Rooftop Yoga — Morning Flow</span><span class="sv-m"><b>60 min</b> · ₹700</span></span>
+        <span class="tick"></span></label>
+    </div>
+  </div>
+</div></div>
+
+<!-- ============ 2. CALENDAR ============ -->
+<div class="screen" id="s2"><div class="modal">
+  <div class="m-head"><div class="x">✕</div>
+    <h2>Signature Cut &amp; Finish</h2>
+    <p class="tz">Timezone: Asia/Kolkata</p>
+    <p class="note">You'll receive a confirmation email after checkout.</p>
+  </div>
+  <div class="m-body">
+    <div class="chosen">
+      <span class="th" style="background:#e8edf8;width:2.6rem;height:2.6rem"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b4a86" stroke-width="1.6"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.5 7.5 20 18M8.5 16.5 20 6" stroke-linecap="round"/></svg></span>
+      <span><span class="sv-t">Signature Cut &amp; Finish</span><span class="sv-m"><b>60 min</b> · ₹1,400</span></span>
+      <span class="chg">Change</span>
+    </div>
+    <div class="cal-wrap">
+      <div>
+        <div class="cal-top"><span class="nav">‹</span><h3>November 2026</h3><span class="nav">›</span></div>
+        <div class="grid">
+          <span class="dow">SUN</span><span class="dow">MON</span><span class="dow">TUE</span><span class="dow">WED</span><span class="dow">THU</span><span class="dow">FRI</span><span class="dow">SAT</span>
+          <span class="d off">1</span><span class="d off">2</span><span class="d off">3</span><span class="d off">4</span><span class="d off">5</span><span class="d off">6</span><span class="d off">7</span>
+          <span class="d off">8</span><span class="d off">9</span><span class="d off">10</span><span class="d off">11</span><span class="d off">12</span><span class="d off">13</span><span class="d off">14</span>
+          <span class="d off">15</span><span class="d off">16</span><span class="d off">17</span><span class="d off">18</span><span class="d sel">19</span><span class="d open">20</span><span class="d open">21</span>
+          <span class="d open">22</span><span class="d off">23</span><span class="d open">24</span><span class="d black">25</span><span class="d open">26</span><span class="d open">27</span><span class="d open">28</span>
+          <span class="d open">29</span><span class="d off">30</span><span class="d off"></span><span class="d off"></span><span class="d off"></span><span class="d off"></span><span class="d off"></span>
+        </div>
+        <p class="hint" style="margin-top:.8rem">Closed Mondays · 25 Nov — staff training</p>
+      </div>
+      <div class="times">
+        <h3>Thu, 19 Nov <span class="seg"><span class="on">AM/PM</span><span>24h</span></span></h3>
+        <div class="slot gone">10:00 AM<span class="cap">BOOKED</span></div>
+        <div class="slot">12:00 PM<span class="cap">3 / 4 LEFT</span></div>
+        <div class="slot">1:00 PM<span class="cap">4 / 4 LEFT</span></div>
+        <div class="slot">2:00 PM<span class="cap low">1 / 4 LEFT</span></div>
+        <div class="slot">3:00 PM<span class="cap">4 / 4 LEFT</span></div>
+        <div class="slot">4:00 PM<span class="cap">4 / 4 LEFT</span></div>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<!-- ============ 3. DETAILS ============ -->
+<div class="screen" id="s3"><div class="modal">
+  <div class="m-head"><div class="x">✕</div>
+    <h2>Signature Cut &amp; Finish</h2>
+    <p class="tz">Timezone: Asia/Kolkata</p>
+    <p class="note">You'll receive a confirmation email after checkout.</p>
+  </div>
+  <div class="m-body">
+    <span class="back">‹ Back</span>
+    <p class="eyebrow">Selected time</p>
+    <div class="pick">Thursday, 19 November 2026 · 1:00 PM – 2:00 PM</div>
+
+    <div class="fld">
+      <p class="lbl">How many people will be attending?</p>
+      <p class="hint">Up to 4 for this time.</p>
+      <span class="step"><i>−</i><b>1</b><i>+</i></span>
+    </div>
+
+    <div class="fld">
+      <p class="lbl">Choose your stylist</p>
+      <p class="hint">Only people free at 1:00 PM are shown.</p>
+      <div class="chips"><span class="chip">Any available</span><span class="chip on">Anitha R.</span><span class="chip">Divya S.</span></div>
+    </div>
+
+    <div class="fld">
+      <p class="lbl">Add these to your order</p>
+      <div class="ups">
+        <span class="th" style="background:#f3eafb"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6f4a9b" stroke-width="1.6"><path d="M12 3c3 4 5 6.5 5 9a5 5 0 0 1-10 0c0-2.5 2-5 5-9z"/></svg></span>
+        <span class="ups-i"><span class="ups-t">Olaplex Bond Treatment</span><span class="ups-s">Adds 15 minutes</span></span>
+        <span class="ups-p">₹900</span><span class="btn-add on">Added ✓</span>
+      </div>
+      <div class="ups">
+        <span class="th" style="background:#e3f2ea"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f7355" stroke-width="1.6"><path d="M4 14c4-1 6-3 8-7 2 4 4 6 8 7M6 18h12" stroke-linecap="round"/></svg></span>
+        <span class="ups-i"><span class="ups-t">Scalp Massage</span><span class="ups-s">15 minutes</span></span>
+        <span class="ups-p">₹450</span><span class="btn-add">Add</span>
+      </div>
+    </div>
+    <div class="cta">Add to cart · ₹2,300</div>
+  </div>
+</div></div>
+
+<!-- ============ 4. CART ============ -->
+<div class="screen" id="s4" style="padding:0;background:#cfd2d8"><div style="display:flex;height:640px">
+  <div style="flex:1"></div>
+  <div class="cart">
+    <h2>Cart</h2>
+    <div class="ci">
+      <span class="th" style="background:#e8edf8"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#3b4a86" stroke-width="1.6"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.5 7.5 20 18M8.5 16.5 20 6" stroke-linecap="round"/></svg></span>
+      <div style="flex:1;min-width:0">
+        <p class="ci-t">Signature Cut &amp; Finish</p>
+        <p class="ci-v">with Anitha R.</p>
+        <div class="card">
+          Appointment date: <b>Thu, 19 Nov 2026</b><br>
+          Appointment time: <b>1:00 PM (IST)</b><br>
+          Duration: <b>60 minutes</b><br>
+          Stylist: <b>Anitha R.</b>
+        </div>
+        <p class="held">Your slot is held for 15 minutes while you check out.</p>
+      </div>
+      <span class="ups-p">₹1,400</span>
+    </div>
+    <div class="ci">
+      <span class="th" style="background:#f3eafb"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6f4a9b" stroke-width="1.6"><path d="M12 3c3 4 5 6.5 5 9a5 5 0 0 1-10 0c0-2.5 2-5 5-9z"/></svg></span>
+      <div style="flex:1;min-width:0">
+        <p class="ci-t">Olaplex Bond Treatment</p>
+        <p class="ci-v">Add-on</p>
+      </div>
+      <span class="ups-p">₹900</span>
+    </div>
+    <div class="tot"><span>Subtotal</span><span>₹2,300</span></div>
+    <div class="cbtns"><span class="cbtn alt">View cart</span><span class="cbtn">Checkout</span></div>
+  </div>
+</div></div>
+
+</body></html>

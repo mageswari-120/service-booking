@@ -17,6 +17,32 @@ export interface BlackoutRow {
   endsAt: Date;
 }
 
+/** A live hold or confirmed booking that ties up a staff member. */
+export interface StaffBusyRow {
+  staffId: string | null;
+  startsAt: Date;
+  /** Bookings store their end; holds take the service's duration. */
+  endsAt?: Date | null;
+  service: { durationMinutes: number; bufferBeforeMinutes: number; bufferAfterMinutes: number };
+}
+
+/**
+ * Each staff member's taken time, buffers included (whatever the service),
+ * for the engine's staff check.
+ */
+export function staffBusyMap(rows: StaffBusyRow[]): Record<string, Interval[]> {
+  const out: Record<string, Interval[]> = {};
+  for (const r of rows) {
+    if (!r.staffId) continue;
+    const end = r.endsAt ?? new Date(r.startsAt.getTime() + r.service.durationMinutes * 60_000);
+    (out[r.staffId] ??= []).push({
+      startsAt: new Date(r.startsAt.getTime() - r.service.bufferBeforeMinutes * 60_000),
+      endsAt: new Date(end.getTime() + r.service.bufferAfterMinutes * 60_000),
+    });
+  }
+  return out;
+}
+
 /**
  * Split rows read once for many services into each service's blackouts and
  * slot usage. Shop-wide blackouts go to every service. PEOPLE mode counts

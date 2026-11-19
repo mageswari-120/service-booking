@@ -1,9 +1,10 @@
 import type { Booking, BookingStatus, Prisma } from "@prisma/client";
 
 import db from "../../db.server";
+import { loadStaffBusy } from "../booking/context.server";
 import { holdSecret, verifyHoldToken } from "../holds/token";
 import { resolveTimezone } from "../shop.server";
-import { slotCapacity } from "../slots/engine";
+import { slotCapacity, staffFreeAt } from "../slots/engine";
 import { bookingLines, orderCustomer, type OrderPayload } from "./order";
 
 export interface CreatedBooking {
@@ -78,6 +79,17 @@ export async function createBookingsFromOrder(
       continue;
     }
     const svc = service;
+    // The hold's staff member is authoritative; the line property is only
+    // trusted when it names staff of this shop (e.g. no valid hold).
+    let staffId = validHold ? validHold.staffId : null;
+    if (!validHold && line.staffId) {
+      const named = await db.staff.findFirst({
+        where: { id: line.staffId, shopId: svc.shopId },
+        select: { id: true },
+      });
+      staffId = named?.id ?? null;
+    }
+    const endsAt = new Date(startsAt.getTime() + svc.durationMinutes * 60_000);
 
     const result = await db.$transaction(async (tx) => {
       const existing = await tx.booking.findUnique({
@@ -85,8 +97,9 @@ export async function createBookingsFromOrder(
       });
       if (existing) return { booking: existing, isNew: false };
 
-      // Same lock as createHold, so the capacity check below can't race a new hold.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${svc.id}|${startsAt.toISOString()}`}))`;
+      // Same locks as createHolds, so the checks below can't race a new hold.
+      const keys = [`${svc.id}|${startsAt.toISOString()}`, ...(staffId ? [`staff|${staffId}`] : [])].sort();
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(k)) FROM unnest(${keys}::text[]) AS k`;
 
       const seats = validHold?.seats ?? line.seats;
       let status: BookingStatus = "CONFIRMED";
@@ -132,6 +145,21 @@ export async function createBookingsFromOrder(
         if (used + needed > capacity) {
           status = "CONFLICT";
           conflictNote = "The hold expired during checkout and the slot filled up in the meantime.";
+        } else if (staffId) {
+          // …and only if the staff member wasn't booked for an overlapping time.
+          const busy = await loadStaffBusy(tx, [staffId], startsAt, endsAt, now);
+          const free = staffFreeAt(
+            { ids: [staffId], busy },
+            {
+              startsAt: new Date(startsAt.getTime() - svc.bufferBeforeMinutes * 60_000),
+              endsAt: new Date(endsAt.getTime() + svc.bufferAfterMinutes * 60_000),
+            },
+          );
+          if (!free?.length) {
+            status = "CONFLICT";
+            conflictNote =
+              "The hold expired during checkout and the staff member was booked for an overlapping time in the meantime.";
+          }
         }
       }
 
@@ -147,7 +175,8 @@ export async function createBookingsFromOrder(
           shopifyOrderName: order.name ?? null,
           shopifyLineItemId: line.lineItemId,
           startsAt,
-          endsAt: new Date(startsAt.getTime() + svc.durationMinutes * 60_000),
+          endsAt,
+          staffId,
           customerName: customer.name,
           customerEmail: customer.email,
           customerPhone: customer.phone,

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { LoaderFunctionArgs } from "@remix-run/node";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { useFetcher, useLoaderData, useNavigate } from "@remix-run/react";
 import {
   Badge,
@@ -25,12 +25,17 @@ import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { getOrCreateShop } from "../lib/shop.server";
 import { DAY_NAMES } from "../lib/services/validation";
+import { syncServiceCount } from "../lib/services/shopify.server";
+import { createSalonDemo } from "../lib/demo/salon.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   // First admin page a merchant sees, so this is where the Shop row and its
   // timezone get created and kept fresh.
   const shop = await getOrCreateShop(session.shop, admin);
+  // Backfill for shops set up before the storefront read it; runs alongside
+  // the page's own queries.
+  const synced = syncServiceCount(admin, shop.id);
 
   const services = await db.service.findMany({
     where: { shopId: shop.id },
@@ -53,6 +58,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     `https://${session.shop}/admin/themes/current/editor` +
     `?template=product&addAppBlockId=${process.env.SHOPIFY_API_KEY}/booking&target=mainSection`;
 
+  await synced;
   return {
     timezone: shop.timezone,
     themeEditorUrl,
@@ -75,6 +81,17 @@ function summariseDays(days: number[]): string {
   }
   return unique.map(short).join(", ");
 }
+
+/** The "Demo data" card's button: create (or reuse) the salon demo. */
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { admin, session } = await authenticate.admin(request);
+  const form = await request.formData();
+  if (form.get("intent") !== "demo") {
+    return { created: [] as string[], reused: [] as string[], removed: [] as string[], warnings: ["Unknown action."] };
+  }
+  const shop = await getOrCreateShop(session.shop, admin);
+  return createSalonDemo(admin, shop);
+};
 
 export default function Services() {
   const { services, timezone, themeEditorUrl } = useLoaderData<typeof loader>();
@@ -107,6 +124,16 @@ export default function Services() {
       { method: "POST", action: `/app/services/${confirming.id}` },
     );
   };
+
+  const demo = useFetcher<typeof action>();
+  useEffect(() => {
+    if (demo.state !== "idle" || !demo.data) return;
+    const { created, reused, removed } = demo.data;
+    shopify.toast.show(
+      `Demo ready: ${created.length} created, ${reused.length} reused` +
+        (removed.length ? `, ${removed.length} duplicates removed` : ""),
+    );
+  }, [demo.state, demo.data, shopify]);
 
   const newService = { content: "New service", url: "/app/services/new" };
 
@@ -240,6 +267,40 @@ export default function Services() {
                 ))}
               </IndexTable>
             )}
+          </Card>
+        </Layout.Section>
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">
+                Demo data
+              </Text>
+              <Text as="p" tone="subdued">
+                Creates a salon demo: 6 service products (Signature Cut &amp;
+                Finish, Express Blow-Dry, Balayage &amp; Gloss, Deep Tissue
+                Massage, Bridal Hair Trial, Rooftop Yoga), 2 add-on products,
+                and stylists Anitha R. and Divya S. Open Tuesday–Sunday
+                10:00–17:00, 4 places per slot, closed 25 Nov. Running it again
+                reuses what exists.
+              </Text>
+              {demo.data?.warnings.length ? (
+                <Banner tone="warning" title="Demo created with notes">
+                  <List>
+                    {demo.data.warnings.map((w) => (
+                      <List.Item key={w}>{w}</List.Item>
+                    ))}
+                  </List>
+                </Banner>
+              ) : null}
+              <InlineStack>
+                <Button
+                  loading={demo.state !== "idle"}
+                  onClick={() => demo.submit({ intent: "demo" }, { method: "POST" })}
+                >
+                  Create salon demo
+                </Button>
+              </InlineStack>
+            </BlockStack>
           </Card>
         </Layout.Section>
       </Layout>

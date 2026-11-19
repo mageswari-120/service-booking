@@ -65,6 +65,7 @@ model Shop {
   services  Service[]
   blackouts Blackout[]
   bookings  Booking[]
+  staff     Staff[]
 }
 
 enum FreeBookingMode {
@@ -101,6 +102,9 @@ model Service {
   // PEOPLE mode, 1 in BOOKINGS mode.
   minSeatsPerBooking  Int  @default(1)
   maxSeatsPerBooking  Int?
+  // True: the cart line's quantity is the party size (price per person).
+  // False: quantity 1 whatever the party size (price per booking).
+  chargePerPerson     Boolean @default(false)
 
   // Overrides Shop.timezone when set
   timezone String?
@@ -124,9 +128,19 @@ model Service {
   addonDescription String?
   addonBadge       String?
 
+  // Who performs the service. NONE: no staff step (as before). OPTIONAL: the
+  // customer may pick a person or "Any available". REQUIRED: the customer
+  // must pick one in the popup. Either way one person can't be in two
+  // overlapping appointments, whatever the service.
+  staffMode        StaffMode @default(NONE)
+  // Service ids the customer can add to this one in the popup. They run back
+  // to back after it, on the same day.
+  comboServiceIds  Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  staff             ServiceStaff[]
   availabilityRules AvailabilityRule[]
   blackouts         Blackout[]
   capacityOverrides CapacityOverride[]
@@ -135,6 +149,46 @@ model Service {
 
   @@unique([shopId, shopifyVariantId])
   @@index([shopId, shopifyProductId])
+}
+
+enum StaffMode {
+  NONE
+  OPTIONAL
+  REQUIRED
+}
+
+// ---------------------------------------------------------------------------
+// Staff — a person or resource (stylist, room, ...) customers can book.
+// Phase 1: staff work their services' hours; no schedule of their own yet.
+// ---------------------------------------------------------------------------
+
+model Staff {
+  id     String @id @default(cuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  name      String
+  active    Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  services ServiceStaff[]
+  holds    SlotHold[]
+  bookings Booking[]
+
+  @@index([shopId, sortOrder])
+}
+
+model ServiceStaff {
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  staffId   String
+  staff     Staff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, staffId])
+  @@index([staffId])
 }
 
 // ---------------------------------------------------------------------------
@@ -223,9 +277,13 @@ model SlotHold {
   // Popup details, copied onto the Booking by the orders handler.
   intakeAnswers Json?
   signaturePng  Bytes?
+  // The staff member this hold reserves, when the service has staff.
+  staffId       String?
+  staff         Staff?  @relation(fields: [staffId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
 
+  @@index([staffId, startsAt])
   // Counting live holds filters on consumedAt IS NULL AND expiresAt > now()
   @@index([serviceId, startsAt, expiresAt, consumedAt])
   @@index([expiresAt])
@@ -260,6 +318,8 @@ model Booking {
   holdToken     String?
   seats         Int     @default(1)
   signaturePng  Bytes?
+  staffId       String?
+  staff         Staff?  @relation(fields: [staffId], references: [id], onDelete: SetNull)
 
   confirmationSentAt DateTime?
   reminderSentAt     DateTime?
@@ -272,6 +332,7 @@ model Booking {
   @@unique([shopifyOrderId, shopifyLineItemId])
   @@index([shopId, startsAt])
   @@index([serviceId, startsAt, status])
+  @@index([staffId, startsAt])
 }
 
 enum BookingStatus {

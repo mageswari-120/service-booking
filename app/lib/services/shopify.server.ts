@@ -1,4 +1,5 @@
 import type { AdminApiContext } from "@shopify/shopify-app-remix/server";
+import db from "../../db.server";
 
 const VARIANT_QUERY = `#graphql
   query ServiceVariant($id: ID!) {
@@ -254,4 +255,32 @@ async function setMetafield(
   return userErrors.length > 0
     ? userErrors.map((e) => e.message).join(" ")
     : null;
+}
+
+const SHOP_ID_QUERY = `#graphql
+  query ServiceBookingShopId { shop { id } }
+`;
+
+/**
+ * How many active services the shop has, on the shop's
+ * service_booking.service_count metafield. The theme block reads it in
+ * Liquid: with more than one, the booking popup opens on the service cards,
+ * so it renders their skeleton (not the calendar's) while loading.
+ *
+ * Best effort: a stale count only changes which skeleton shows first.
+ */
+export async function syncServiceCount(admin: AdminApiContext, shopId: string): Promise<void> {
+  try {
+    const [count, res] = await Promise.all([
+      db.service.count({ where: { shopId, active: true } }),
+      admin.graphql(SHOP_ID_QUERY),
+    ]);
+    const body = (await res.json()) as { data?: { shop?: { id?: string } } };
+    const shopGid = body.data?.shop?.id;
+    if (!shopGid) return;
+    const error = await setMetafield(admin, shopGid, "service_count", "number_integer", String(count));
+    if (error) console.error(`[services] service_count metafield not set: ${error}`);
+  } catch (error) {
+    console.error("[services] service_count metafield sync failed", error);
+  }
 }

@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 
-import { slotsByDay } from "../slots/engine";
-import type { ComputeSlotsParams } from "../slots/types";
+import { comboSlots, groupByDay } from "../slots/engine";
+import type { ComputeSlotsParams, Slot } from "../slots/types";
 import {
   buildSlotParams,
   buildSlotParamsMany,
@@ -12,6 +12,8 @@ export interface MonthSlot {
   start: string;
   capacity: number;
   remaining: number;
+  /** Staff ids free at this time, when the service has staff. */
+  staff?: string[];
 }
 
 export interface MonthSlots {
@@ -52,7 +54,15 @@ function monthRange(service: BookableService, monthParam: string | null, now: Da
 type Range = ReturnType<typeof monthRange>;
 
 function shapeMonth(range: Range, params: ComputeSlotsParams | null): MonthSlots {
-  const byDay = params ? slotsByDay({ ...params, includeFull: true }) : {};
+  return shapeSlots(
+    range,
+    params ? comboSlots([{ ...params, includeFull: true }]) : [],
+    params?.service.timezone ?? "UTC",
+  );
+}
+
+function shapeSlots(range: Range, list: Slot[], zone: string): MonthSlots {
+  const byDay = groupByDay(list, zone);
   const days = Object.keys(byDay)
     .filter((day) => byDay[day].some((s) => s.remaining > 0))
     .sort();
@@ -61,11 +71,15 @@ function shapeMonth(range: Range, params: ComputeSlotsParams | null): MonthSlots
   const slots = Object.fromEntries(
     Object.keys(byDay).map((day) => [
       day,
-      byDay[day].map((s) => ({
-        start: s.startsAt.toISOString(),
-        capacity: s.capacity,
-        remaining: s.remaining,
-      })),
+      byDay[day].map((s): MonthSlot => {
+        const out: MonthSlot = {
+          start: s.startsAt.toISOString(),
+          capacity: s.capacity,
+          remaining: s.remaining,
+        };
+        if (s.staff) out.staff = s.staff;
+        return out;
+      }),
     ]),
   );
   return {
@@ -89,6 +103,33 @@ export async function monthSlots(
       ? await buildSlotParams(service, range.from.toJSDate(), range.to.toJSDate(), now)
       : null;
   return shapeMonth(range, params);
+}
+
+/**
+ * A month of start times for `service` followed back to back by `rest` (the
+ * popup's combined services). Each later service is read over the same
+ * range, padded by a day: the chain can run past midnight or the month end.
+ */
+export async function monthComboSlots(
+  service: BookableService,
+  rest: BookableService[],
+  monthParam: string | null,
+  now: Date = new Date(),
+): Promise<MonthSlots> {
+  if (!rest.length) return monthSlots(service, monthParam, now);
+  const range = monthRange(service, monthParam, now);
+  if (range.from >= range.to) return shapeSlots(range, [], service.geometry.timezone);
+  const from = range.from.toJSDate();
+  const to = range.to.toJSDate();
+  const pad = 24 * 60 * 60_000;
+  const chain = await Promise.all([
+    buildSlotParams(service, from, to, now),
+    ...rest.map((s) =>
+      buildSlotParams(s, from, new Date(to.getTime() + pad), now),
+    ),
+  ]);
+  chain[0] = { ...chain[0], includeFull: true };
+  return shapeSlots(range, comboSlots(chain), service.geometry.timezone);
 }
 
 /**

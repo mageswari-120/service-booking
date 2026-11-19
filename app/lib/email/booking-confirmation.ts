@@ -15,6 +15,8 @@ export interface BookingConfirmationInput {
   endsAt: Date;
   timezone: string;
   seats: number;
+  /** The staff member booked, when the service has staff. */
+  staffName?: string | null;
   orderName: string | null;
   bookingId: string;
   customerName: string | null;
@@ -78,6 +80,7 @@ ${field("What", what)}
 <p style="margin:0 0 4px;font-size:13px;color:#6b6b6b;font-weight:600">When</p>
 <p style="margin:0 0 2px;font-size:16px;color:#1a1a1a;font-weight:600">${escapeHtml(date)}</p>
 <p style="margin:0 0 20px;font-size:14px;color:#555">${escapeHtml(when)}</p>
+${input.staffName ? field("With", input.staffName) : ""}
 ${field("Attendees", String(input.seats))}
 ${field("Booking ID", bookingRef)}
 </td></tr>
@@ -103,6 +106,7 @@ ${escapeHtml(input.shopName)} &middot; Reply to this email if you need to change
     "",
     `What: ${what}`,
     `When: ${date}, ${when}`,
+    ...(input.staffName ? [`With: ${input.staffName}`] : []),
     `Attendees: ${input.seats}`,
     `Booking ID: ${bookingRef}`,
     ...(extra.length ? ["", "Additional Information", ...extra.map(([l, v]) => `${l}: ${v}`)] : []),

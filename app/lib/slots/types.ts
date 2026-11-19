@@ -69,6 +69,21 @@ export interface Slot {
   capacity: number;
   /** Capacity still available. Always >= minUnitsPerHold for returned slots. */
   remaining: number;
+  /**
+   * Staff ids free for this slot (in the order given), when the service has
+   * staff. An empty list makes the slot full.
+   */
+  staff?: string[];
+}
+
+/**
+ * The staff who can perform a service, and when each is already taken. Busy
+ * intervals include the buffers of the appointment that made them, across
+ * every service: one person can't be in two places at once.
+ */
+export interface StaffAvailability {
+  ids: string[];
+  busy: Record<string, Interval[]>;
 }
 
 export interface ComputeSlotsParams {
@@ -79,6 +94,8 @@ export interface ComputeSlotsParams {
   usage: SlotUsage[];
   /** Date-specific limits. The first match wins. */
   overrides?: CapacityOverride[];
+  /** Absent (or no ids): the service has no staff step. */
+  staff?: StaffAvailability;
   /** Inclusive UTC lower bound of the query range. */
   rangeStart: Date;
   /** Exclusive UTC upper bound of the query range. */

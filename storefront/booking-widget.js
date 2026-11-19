@@ -47,28 +47,29 @@
     var form = findProductForm(root);
     var section = (form && form.closest(".shopify-section")) || root.closest(".shopify-section");
 
+    // Fields left out start undefined (falsy), which every check below treats
+    // like their empty value; listed here so the shape stays documented.
+    // (booking.js must stay under theme check's 10,000-byte app block limit.)
+    //   bookable    — the variant is a service (relabelled button)
+    //   timezone, month, firstMonth, lastMonth — from /availability
+    //   date        — the chosen "YYYY-MM-DD"; slots — that day's times
+    //   capacity    — the service's default slot limit; slots carry their own
+    //   mode        — what slot limits count: "people" or "bookings"
+    //   minSeats, maxSeats (null: only the slot's free places limit party size)
+    //   duration, questions, signature — the popup's second step
+    //   pick        — the slot chosen in step 1
+    //   services    — the shop's, for the switcher: [{ variantId, title, duration }]
+    //   staff ([{ id, name }]), staffMode
+    //   loading     — the /availability request in flight, if any
+    //   wantDay     — popup opened before data came: pick a day on arrival
     var state = {
+      // The service being booked; the "Service" switcher can move it off
+      // the theme form's variant (formId), which the poll below follows.
       variantId: root.dataset.variantId,
-      bookable: false,
-      timezone: null,
-      month: null,
-      firstMonth: null,
-      lastMonth: null,
+      formId: root.dataset.variantId,
       days: [],
       byDay: {}, // "YYYY-MM-DD" -> [{ start, remaining }] for the loaded month
-      date: null,
-      slots: null,
-      capacity: 1, // the service's default slot limit; slots carry their own
-      mode: "people", // what slot limits count: "people" or "bookings"
-      minSeats: 1,
-      maxSeats: null, // null: only the slot's free places limit party size
-      duration: 0,
-      questions: [],
-      signature: false,
-      pick: null, // the slot chosen in step 1
       seq: 0,
-      loading: null, // the /availability request in flight, if any
-      wantDay: false, // popup opened before data came: pick a day on arrival
       h24: readHourPref(),
     };
 
@@ -148,9 +149,13 @@
       root.hidden = !on;
       if (section) section.classList.toggle("sb-has-booking", on);
       if (form) {
-        var qty = form.querySelector('[name="quantity"]') ||
+        var wrap = form.querySelector('[name="quantity"]') ||
           document.querySelector('[name="quantity"][form="' + form.id + '"]');
-        var wrap = qty && (qty.closest(".product-form__quantity, quantity-input, .quantity") || qty.parentElement);
+        // The quantity box with its − / + buttons, whatever the theme's
+        // markup: the largest ancestor holding no other buy control (the
+        // add button, a variant option) and short of the form itself.
+        for (var up; wrap && (up = wrap.parentElement) && up !== form &&
+          !up.querySelector("[type=submit],[name=add],select,fieldset,[type=radio]");) wrap = up;
         if (wrap) wrap.classList.toggle("sb-hide", on);
       }
       syncLabel();
@@ -285,28 +290,8 @@
           step1El.hidden = true;
           detailsEl.hidden = false;
           addBtn.hidden = false;
-          window.__sbStep2({
-            root: root,
-            state: state,
-            el: el,
-            t: t,
-            api: api,
-            fmt: fmt,
-            formatTime: formatTime,
-            setStatus: setStatus,
-            detailsEl: detailsEl,
-            addBtn: addBtn,
-            upsells: $('template[data-sb-upsells][data-for="' + state.variantId + '"]'),
-            back: showStep1,
-            // The time filled while the customer was filling in step 2.
-            taken: function () {
-              state.pick = null;
-              showStep1();
-              loadMonth(state.month).then(function () {
-                setStatus(t("Taken"), true);
-              });
-            },
-          });
+          ctx.upsells = $('template[data-sb-upsells][data-for="' + state.variantId + '"]');
+          window.__sbStep2(ctx);
           detailsEl.scrollTop = 0;
         },
         function () {
@@ -315,12 +300,45 @@
       );
     }
 
+    /** What booking-step2.js and booking-extras.js get to work with. */
+    var ctx = {
+      root: root,
+      state: state,
+      el: el,
+      t: t,
+      api: api,
+      fmt: fmt,
+      formatTime: formatTime,
+      setStatus: setStatus,
+      detailsEl: detailsEl,
+      addBtn: addBtn,
+      back: showStep1,
+      // The time filled while the customer was filling in step 2.
+      taken: function () {
+        state.pick = null;
+        showStep1();
+        loadMonth(state.month).then(function () {
+          setStatus(t("Taken"), true);
+        });
+      },
+      // The "Service" switcher: book another service (its own calendar,
+      // times, staff and add-ons) instead.
+      change: function (id) {
+        reset(id);
+        renderSkeleton();
+        loadMonth(null, true);
+      },
+    };
+
+    /**
+     * booking-step2.js — step 2, plus (bundled in from booking-extras.js) the
+     * services checklist and the staff picker.
+     */
     function loadStep2() {
       if (!step2Loading) {
         step2Loading = new Promise(function (resolve, reject) {
           var s = document.createElement("script");
           s.src = root.dataset.step2Src;
-          s.async = true;
           s.onload = resolve;
           s.onerror = function () {
             step2Loading = null; // allow a retry
@@ -345,7 +363,6 @@
 
     function renderCalendar() {
       var first = monthDate(state.month);
-      var utc = { timeZone: "UTC" };
       var navBtn = function (label, text, delta, off) {
         return el("button", {
           type: "button",
@@ -358,21 +375,13 @@
           },
         });
       };
-      var title = new Intl.DateTimeFormat(locale, Object.assign({ month: "long", year: "numeric" }, utc)).format(first);
+      var title = new Intl.DateTimeFormat(locale, { month: "long", year: "numeric", timeZone: "UTC" }).format(first);
       var grid = el("div", { class: "sb-cal__grid", role: "group", "aria-label": title });
-      var dow = new Intl.DateTimeFormat(locale, Object.assign({ weekday: "short" }, utc));
-      for (var i = 0; i < 7; i++) {
-        // 2023-01-01 was a Sunday.
-        grid.appendChild(el("span", {
-          class: "sb-cal__dow",
-          "aria-hidden": "true",
-          text: dow.format(new Date(Date.UTC(2023, 0, 1 + ((i + weekStart) % 7)))),
-        }));
-      }
+      weekdays(grid);
       for (var pad = (first.getUTCDay() - weekStart + 7) % 7; pad > 0; pad--) {
         grid.appendChild(el("span"));
       }
-      var full = new Intl.DateTimeFormat(locale, Object.assign({ dateStyle: "full" }, utc));
+      var full = new Intl.DateTimeFormat(locale, { dateStyle: "full", timeZone: "UTC" });
       for (var d = new Date(first); d.getUTCMonth() === first.getUTCMonth(); d.setUTCDate(d.getUTCDate() + 1)) {
         var iso = d.toISOString().slice(0, 10);
         grid.appendChild(el("button", {
@@ -395,18 +404,24 @@
       if (!state.days.length) calEl.appendChild(el("p", { class: "sb-muted", text: t("NoDates") }));
     }
 
-    /** A greyed month grid so the popup has its size before the dates arrive. */
-    function renderSkeleton() {
-      if (calEl.firstChild) return;
-      var utc = { timeZone: "UTC" };
-      var dow = new Intl.DateTimeFormat(locale, Object.assign({ weekday: "short" }, utc));
-      var grid = el("div", { class: "sb-cal__grid", "aria-hidden": "true" });
+    /** The weekday header row of a month grid. */
+    function weekdays(grid) {
+      var dow = new Intl.DateTimeFormat(locale, { weekday: "short", timeZone: "UTC" });
       for (var i = 0; i < 7; i++) {
+        // 2023-01-01 was a Sunday.
         grid.appendChild(el("span", {
           class: "sb-cal__dow",
+          "aria-hidden": "true",
           text: dow.format(new Date(Date.UTC(2023, 0, 1 + ((i + weekStart) % 7)))),
         }));
       }
+    }
+
+    /** A greyed month grid so the popup has its size before the dates arrive. */
+    function renderSkeleton() {
+      if (calEl.firstChild) return;
+      var grid = el("div", { class: "sb-cal__grid", "aria-hidden": "true" });
+      weekdays(grid);
       for (var j = 0; j < 35; j++) {
         grid.appendChild(el("span", { class: "sb-cal__day sb-cal__day--skeleton" }));
       }
@@ -505,6 +520,16 @@
           state.duration = d.duration || 0;
           state.questions = d.questions || [];
           state.signature = !!d.signature;
+          state.services = d.services;
+          state.staff = d.staff;
+          state.staffMode = d.staffMode;
+          // The "Service" switcher (booking-extras.js), when there's a choice —
+          // or to undo booking.liquid's card skeleton if its count was stale.
+          if (d.services[1] || /step-service/.test(step1El.className)) {
+            loadStep2().then(function () {
+              window.__sbServices(ctx);
+            });
+          }
           applyBookable(true);
           $("[data-sb-zone]").textContent = t("Timezone", { zone: d.timezone });
           if (state.date && state.date.slice(0, 7) !== d.month) state.date = null;
@@ -517,7 +542,7 @@
         })
         .catch(function (status) {
           if (seq !== state.seq) return;
-          console.warn("[service-booking] availability failed", status);
+          console.warn("[sb] availability", status);
           if (shown()) setStatus(t("Error"), true);
         })
         .then(done, done);
@@ -545,17 +570,23 @@
     function checkVariant() {
       var input = form && (form.querySelector('[name="id"]') ||
         document.querySelector('[name="id"][form="' + form.id + '"]'));
-      var id = input && input.value ? String(input.value) : state.variantId;
-      if (id === state.variantId) return syncLabel();
+      var id = input && input.value ? String(input.value) : state.formId;
+      if (id === state.formId) return syncLabel();
+      state.formId = id;
+      reset(id);
+      if (dialog && dialog.open) close();
+      start();
+    }
+
+    /** Forget everything loaded for the previous service. */
+    function reset(id) {
       state.variantId = id;
       state.date = state.month = state.slots = state.pick = state.loading = null;
       state.wantDay = false;
       state.seq++;
       calEl.textContent = "";
       timesEl.textContent = "";
-      if (dialog && dialog.open) close();
       setStatus("");
-      start();
     }
 
     if (form) {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { useFetcher, useLoaderData } from "@remix-run/react";
+import { Link, useFetcher, useLoaderData } from "@remix-run/react";
 import {
   BlockStack,
   Button,
@@ -32,6 +32,7 @@ import {
   setVariantAddonCard,
   setVariantBookable,
   setVariantUpsells,
+  syncServiceCount,
 } from "../lib/services/shopify.server";
 import { parseQuestions, type IntakeQuestion } from "../lib/booking/details";
 import {
@@ -48,6 +49,7 @@ import {
   type OverrideInput,
   type ServiceErrors,
   type ServiceFormInput,
+  type StaffModeInput,
   type WindowInput,
 } from "../lib/services/validation";
 
@@ -63,6 +65,13 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     Intl as unknown as { supportedValuesOf(key: "timeZone"): string[] }
   ).supportedValuesOf("timeZone");
 
+  // Choices for the "Staff" card.
+  const staffOptions = await db.staff.findMany({
+    where: { shopId: shop.id },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { id: true, name: true, active: true },
+  });
+
   if (params.id === "new") {
     return {
       isNew: true,
@@ -71,6 +80,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       variantLabel: null as string | null,
       upsellLabels: {} as Record<string, string>,
       addonLabels: {} as Record<string, string>,
+      staffOptions,
       form: emptyForm(),
     };
   }
@@ -80,6 +90,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     include: {
       availabilityRules: { orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }] },
       capacityOverrides: { orderBy: [{ date: "asc" }, { startMinute: "asc" }] },
+      staff: { select: { staffId: true } },
     },
   });
   if (!service) throw new Response("Service not found", { status: 404 });
@@ -133,11 +144,15 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     })),
     intakeQuestions: parseQuestions(service.intakeQuestions),
     requireSignature: service.requireSignature,
+    chargePerPerson: service.chargePerPerson,
     upsellVariantIds,
     addonProductIds,
     addonLabel: service.addonLabel ?? "",
     addonDescription: service.addonDescription ?? "",
     addonBadge: service.addonBadge ?? "",
+    staffMode: service.staffMode,
+    staffIds: service.staff.map((s) => s.staffId),
+    comboServiceIds: stringList(service.comboServiceIds),
   };
 
   return {
@@ -147,6 +162,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     variantLabel: variant?.displayName ?? `${service.title} (product not found)`,
     upsellLabels,
     addonLabels,
+    staffOptions,
     form,
   };
 };
@@ -192,6 +208,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     // Best effort: a stale flag only costs a proxy check on the storefront.
     await setVariantBookable(admin, existing.shopifyVariantId, false);
     await syncAddonProducts(admin, stringList(existing.addonProductIds), [], null);
+    await syncServiceCount(admin, shop.id);
     return redirect("/app");
   }
 
@@ -222,13 +239,40 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     intakeQuestions,
     upsellVariantIds,
     addonProductIds,
+    staffIds: requestedStaff,
+    comboServiceIds: requestedCombos,
     ...rest
   } = parsed.data;
+  // Only this shop's staff and other services; ids from the browser that
+  // don't match (deleted since the page loaded, or forged) are dropped.
+  const [ownStaff, ownServices] = await Promise.all([
+    requestedStaff.length
+      ? db.staff.findMany({ where: { shopId: shop.id, id: { in: requestedStaff } }, select: { id: true } })
+      : [],
+    requestedCombos.length
+      ? db.service.findMany({
+          where: {
+            shopId: shop.id,
+            id: { in: requestedCombos, ...(existing ? { not: existing.id } : {}) },
+          },
+          select: { id: true },
+        })
+      : [],
+  ]);
+  const staffIds = requestedStaff.filter((id) => ownStaff.some((s) => s.id === id));
+  const comboServiceIds = requestedCombos.filter((id) => ownServices.some((s) => s.id === id));
+  if (rest.staffMode !== "NONE" && !staffIds.length) {
+    return {
+      ok: false,
+      errors: { staffIds: "Choose at least one staff member who performs this service." },
+    } satisfies ActionResult;
+  }
   const fields = {
     ...rest,
     intakeQuestions: intakeQuestions as unknown as Prisma.InputJsonValue,
     upsellVariantIds,
     addonProductIds,
+    comboServiceIds,
   };
 
   const shopifyError =
@@ -282,6 +326,13 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           data: capacityOverrides.map((o) => ({ ...o, serviceId: service.id })),
         });
       }
+      // And for who performs it.
+      await tx.serviceStaff.deleteMany({ where: { serviceId: service.id } });
+      if (staffIds.length > 0) {
+        await tx.serviceStaff.createMany({
+          data: staffIds.map((staffId) => ({ staffId, serviceId: service.id })),
+        });
+      }
       return service.id;
     });
   } catch (error) {
@@ -317,6 +368,9 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       errors: { addonProductIds: `Shopify rejected the products: ${addonError}` },
     } satisfies ActionResult;
   }
+
+  // Which skeleton the storefront popup shows first (cards with 2+ services).
+  await syncServiceCount(admin, shop.id);
 
   if (!existing) return redirect(`/app/services/${serviceId}`);
   return { ok: true, variantLabel: variant.displayName } satisfies ActionResult;
@@ -367,11 +421,15 @@ function emptyForm(): ServiceFormInput {
     capacityOverrides: [],
     intakeQuestions: [],
     requireSignature: false,
+    chargePerPerson: false,
     upsellVariantIds: [],
     addonProductIds: [],
     addonLabel: "",
     addonDescription: "",
     addonBadge: "",
+    staffMode: "NONE",
+    staffIds: [],
+    comboServiceIds: [],
   };
 }
 
@@ -431,6 +489,13 @@ export default function ServiceEditor() {
         setForm((f) => ({ ...f, [key]: value })),
     [],
   );
+
+  /** Tick or untick `id` in a list field, keeping the order things were ticked in. */
+  const toggleIn = (key: "staffIds" | "comboServiceIds", id: string, on: boolean) =>
+    setForm((f) => {
+      const list = (f[key] ?? []).filter((x) => x !== id);
+      return { ...f, [key]: on ? [...list, id] : list };
+    });
 
   const pickVariant = async () => {
     const selection = (await shopify.resourcePicker({
@@ -729,6 +794,12 @@ export default function ServiceEditor() {
                       }
                     />
                   </FormLayout.Group>
+                  <Checkbox
+                    label="Charge per person"
+                    checked={!!form.chargePerPerson}
+                    onChange={set("chargePerPerson")}
+                    helpText="On: the cart quantity is the number of people, so the product price is per person. Off: one price per booking, whatever the party size (the number of people is still saved on the booking)."
+                  />
                 </FormLayout>
               </BlockStack>
             </Card>
@@ -1005,6 +1076,54 @@ export default function ServiceEditor() {
                     {form.upsellVariantIds.length ? "Change products" : "Choose products"}
                   </Button>
                 </div>
+              </BlockStack>
+            </Card>
+
+            <Card>
+              <BlockStack gap="300">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text as="h2" variant="headingMd">
+                    Staff
+                  </Text>
+                  <Link to="/app/staff">Manage staff</Link>
+                </InlineStack>
+                <Text as="p" tone="subdued">
+                  People or resources (stylists, rooms…) who perform this
+                  service. Each has their own calendar: one person can&apos;t be
+                  booked for overlapping times, across all services.
+                </Text>
+                <Select
+                  label="Customers choose staff"
+                  options={[
+                    { label: "No staff step", value: "NONE" },
+                    { label: "Optional: pick someone or “Any available”", value: "OPTIONAL" },
+                    { label: "Required: customers must pick someone", value: "REQUIRED" },
+                  ]}
+                  value={form.staffMode ?? "NONE"}
+                  onChange={(v) => set("staffMode")(v as StaffModeInput)}
+                  error={errors.staffMode}
+                />
+                {(form.staffMode ?? "NONE") !== "NONE" ? (
+                  loaderData.staffOptions.length ? (
+                    <BlockStack gap="100">
+                      {loaderData.staffOptions.map((s) => (
+                        <Checkbox
+                          key={s.id}
+                          label={s.active ? s.name : `${s.name} (inactive)`}
+                          checked={(form.staffIds ?? []).includes(s.id)}
+                          onChange={(on) => toggleIn("staffIds", s.id, on)}
+                        />
+                      ))}
+                    </BlockStack>
+                  ) : (
+                    <Text as="p">
+                      No staff yet. <Link to="/app/staff">Add staff</Link> first.
+                    </Text>
+                  )
+                ) : null}
+                {errors.staffIds ? (
+                  <InlineError message={errors.staffIds} fieldID="staffIds" />
+                ) : null}
               </BlockStack>
             </Card>
 

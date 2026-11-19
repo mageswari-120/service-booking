@@ -111,35 +111,35 @@
         data-proxy="/apps/booking"
         data-step2-src="{{ 'booking-step2.js' | asset_url }}"
         data-week-start="{{ block.settings.week_start }}"
-        data-i18n-loading="{{ 'booking.loading' | t | escape }}"
-        data-i18n-no-dates="{{ 'booking.no_dates' | t | escape }}"
-        data-i18n-no-times="{{ 'booking.no_times' | t | escape }}"
-        data-i18n-previous-month="{{ 'booking.previous_month' | t | escape }}"
-        data-i18n-next-month="{{ 'booking.next_month' | t | escape }}"
-        data-i18n-pick-time="{{ 'booking.pick_time' | t | escape }}"
-        data-i18n-choose-date="{{ 'booking.choose_date' | t | escape }}"
-        data-i18n-available-times="{{ 'booking.available_times' | t | escape }}"
-        data-i18n-times-note="{{ 'booking.times_note' | t: zone: '__ZONE__', minutes: '__MINUTES__' | escape }}"
-        data-i18n-minutes="{{ 'booking.minutes' | t: count: '__COUNT__' | escape }}"
-        data-i18n-add-with-total="{{ 'booking.add_with_total' | t: total: '__TOTAL__' | escape }}"
-        data-i18n-people="{{ 'booking.people' | t | escape }}"
-        data-i18n-people-help="{{ 'booking.people_help' | t: max: '__MAX__' | escape }}"
-        data-i18n-people-help-range="{{ 'booking.people_help_range' | t: min: '__MIN__', max: '__MAX__' | escape }}"
-        data-i18n-people-help-exact="{{ 'booking.people_help_exact' | t: count: '__COUNT__' | escape }}"
-        data-i18n-signature="{{ 'booking.signature' | t | escape }}"
-        data-i18n-signature-help="{{ 'booking.signature_help' | t | escape }}"
-        data-i18n-clear-signature="{{ 'booking.clear_signature' | t | escape }}"
-        data-i18n-adding="{{ 'booking.adding' | t | escape }}"
-        data-i18n-add-these="{{ 'booking.add_these' | t | escape }}"
-        data-i18n-add="{{ 'booking.add' | t | escape }}"
-        data-i18n-added="{{ 'booking.added' | t | escape }}"
-        data-i18n-appointment-date="{{ 'booking.appointment_date' | t | escape }}"
-        data-i18n-appointment-time="{{ 'booking.appointment_time' | t | escape }}"
-        data-i18n-duration="{{ 'booking.duration' | t | escape }}"
-        data-i18n-required="{{ 'booking.required' | t | escape }}"
-        data-i18n-yes="{{ 'booking.yes' | t | escape }}"
-        data-i18n-taken="{{ 'booking.taken' | t | escape }}"
-        data-i18n-error="{{ 'booking.error' | t | escape }}"
+        data-i18n-loading="{{ 'booking.loading' | t }}"
+        data-i18n-no-dates="{{ 'booking.no_dates' | t }}"
+        data-i18n-no-times="{{ 'booking.no_times' | t }}"
+        data-i18n-previous-month="{{ 'booking.previous_month' | t }}"
+        data-i18n-next-month="{{ 'booking.next_month' | t }}"
+        data-i18n-pick-time="{{ 'booking.pick_time' | t }}"
+        data-i18n-choose-date="{{ 'booking.choose_date' | t }}"
+        data-i18n-available-times="{{ 'booking.available_times' | t }}"
+        data-i18n-times-note="{{ 'booking.times_note' | t: zone: '__ZONE__', minutes: '__MINUTES__' }}"
+        data-i18n-minutes="{{ 'booking.minutes' | t: count: '__COUNT__' }}"
+        data-i18n-add-with-total="{{ 'booking.add_with_total' | t: total: '__TOTAL__' }}"
+        data-i18n-people="{{ 'booking.people' | t }}"
+        data-i18n-people-help="{{ 'booking.people_help' | t: max: '__MAX__' }}"
+        data-i18n-people-help-range="{{ 'booking.people_help_range' | t: min: '__MIN__', max: '__MAX__' }}"
+        data-i18n-people-help-exact="{{ 'booking.people_help_exact' | t: count: '__COUNT__' }}"
+        data-i18n-signature="{{ 'booking.signature' | t }}"
+        data-i18n-signature-help="{{ 'booking.signature_help' | t }}"
+        data-i18n-clear-signature="{{ 'booking.clear_signature' | t }}"
+        data-i18n-adding="{{ 'booking.adding' | t }}"
+        data-i18n-add-these="{{ 'booking.add_these' | t }}"
+        data-i18n-add="{{ 'booking.add' | t }}"
+        data-i18n-added="{{ 'booking.added' | t }}"
+        data-i18n-appointment-date="{{ 'booking.appointment_date' | t }}"
+        data-i18n-appointment-time="{{ 'booking.appointment_time' | t }}"
+        data-i18n-duration="{{ 'booking.duration' | t }}"
+        data-i18n-required="{{ 'booking.required' | t }}"
+        data-i18n-yes="{{ 'booking.yes' | t }}"
+        data-i18n-taken="{{ 'booking.taken' | t }}"
+        data-i18n-error="{{ 'booking.error' | t }}"
         style="
           {%- if block.settings.accent_source == 'custom' %}--sb-accent: {{ block.settings.accent }};{% endif -%}
           {%- if block.settings.highlight != blank %}--sb-tint: {{ block.settings.highlight }};{% endif -%}
@@ -252,40 +252,47 @@
       data-step2-src="{{ 'booking-step2.js' | asset_url }}"
       data-after-add="{{ block.settings.after_add }}"
       data-week-start="{{ block.settings.week_start }}"
-      data-i18n-timezone="{{ 'booking.timezone' | t: zone: '__ZONE__' | escape }}"
-      data-i18n-close="{{ 'booking.close' | t | escape }}"
-      data-i18n-loading="{{ 'booking.loading' | t | escape }}"
-      data-i18n-no-dates="{{ 'booking.no_dates' | t | escape }}"
-      data-i18n-no-times="{{ 'booking.no_times' | t | escape }}"
-      data-i18n-previous-month="{{ 'booking.previous_month' | t | escape }}"
-      data-i18n-next-month="{{ 'booking.next_month' | t | escape }}"
-      data-i18n-pick-time="{{ 'booking.pick_time' | t | escape }}"
-      data-i18n-available="{{ 'booking.available' | t: count: '__COUNT__', total: '__TOTAL__' | escape }}"
-      data-i18n-spots-left="{{ 'booking.spots_left' | t: count: '__COUNT__' | escape }}"
-      data-i18n-back="{{ 'booking.back' | t | escape }}"
-      data-i18n-selected-time="{{ 'booking.selected_time' | t | escape }}"
-      data-i18n-from-to="{{ 'booking.from_to' | t: date: '__DATE__', start: '__START__', end: '__END__' | escape }}"
-      data-i18n-people="{{ 'booking.people' | t | escape }}"
-      data-i18n-people-help="{{ 'booking.people_help' | t: max: '__MAX__' | escape }}"
-      data-i18n-people-help-range="{{ 'booking.people_help_range' | t: min: '__MIN__', max: '__MAX__' | escape }}"
-      data-i18n-people-help-exact="{{ 'booking.people_help_exact' | t: count: '__COUNT__' | escape }}"
-      data-i18n-signature="{{ 'booking.signature' | t | escape }}"
-      data-i18n-signature-help="{{ 'booking.signature_help' | t | escape }}"
-      data-i18n-clear-signature="{{ 'booking.clear_signature' | t | escape }}"
-      data-i18n-add-these="{{ 'booking.add_these' | t | escape }}"
-      data-i18n-add="{{ 'booking.add' | t | escape }}"
-      data-i18n-added="{{ 'booking.added' | t | escape }}"
-      data-i18n-adding="{{ 'booking.adding' | t | escape }}"
-      data-i18n-appointment-date="{{ 'booking.appointment_date' | t | escape }}"
-      data-i18n-appointment-time="{{ 'booking.appointment_time' | t | escape }}"
-      data-i18n-duration="{{ 'booking.duration' | t | escape }}"
-      data-i18n-minutes="{{ 'booking.minutes' | t: count: '__COUNT__' | escape }}"
-      data-i18n-required="{{ 'booking.required' | t | escape }}"
-      data-i18n-yes="{{ 'booking.yes' | t | escape }}"
-      data-i18n-taken="{{ 'booking.taken' | t | escape }}"
-      data-i18n-error="{{ 'booking.error' | t | escape }}"
-      data-i18n-hour12="{{ 'booking.hour_12' | t | escape }}"
-      data-i18n-hour24="{{ 'booking.hour_24' | t | escape }}"
+      data-i18n-timezone="{{ 'booking.timezone' | t: zone: '__ZONE__' }}"
+      data-i18n-close="{{ 'booking.close' | t }}"
+      data-i18n-loading="{{ 'booking.loading' | t }}"
+      data-i18n-no-dates="{{ 'booking.no_dates' | t }}"
+      data-i18n-no-times="{{ 'booking.no_times' | t }}"
+      data-i18n-previous-month="{{ 'booking.previous_month' | t }}"
+      data-i18n-next-month="{{ 'booking.next_month' | t }}"
+      data-i18n-pick-time="{{ 'booking.pick_time' | t }}"
+      data-i18n-available="{{ 'booking.available' | t: count: '__COUNT__', total: '__TOTAL__' }}"
+      data-i18n-spots-left="{{ 'booking.spots_left' | t: count: '__COUNT__' }}"
+      data-i18n-back="{{ 'booking.back' | t }}"
+      data-i18n-selected-time="{{ 'booking.selected_time' | t }}"
+      data-i18n-from-to="{{ 'booking.from_to' | t: date: '__DATE__', start: '__START__', end: '__END__' }}"
+      data-i18n-people="{{ 'booking.people' | t }}"
+      data-i18n-people-help="{{ 'booking.people_help' | t: max: '__MAX__' }}"
+      data-i18n-people-help-range="{{ 'booking.people_help_range' | t: min: '__MIN__', max: '__MAX__' }}"
+      data-i18n-people-help-exact="{{ 'booking.people_help_exact' | t: count: '__COUNT__' }}"
+      data-i18n-signature="{{ 'booking.signature' | t }}"
+      data-i18n-signature-help="{{ 'booking.signature_help' | t }}"
+      data-i18n-clear-signature="{{ 'booking.clear_signature' | t }}"
+      data-i18n-add-these="{{ 'booking.add_these' | t }}"
+      data-i18n-add="{{ 'booking.add' | t }}"
+      data-i18n-added="{{ 'booking.added' | t }}"
+      data-i18n-adding="{{ 'booking.adding' | t }}"
+      data-i18n-appointment-date="{{ 'booking.appointment_date' | t }}"
+      data-i18n-appointment-time="{{ 'booking.appointment_time' | t }}"
+      data-i18n-duration="{{ 'booking.duration' | t }}"
+      data-i18n-minutes="{{ 'booking.minutes' | t: count: '__COUNT__' }}"
+      data-i18n-required="{{ 'booking.required' | t }}"
+      data-i18n-yes="{{ 'booking.yes' | t }}"
+      data-i18n-taken="{{ 'booking.taken' | t }}"
+      data-i18n-error="{{ 'booking.error' | t }}"
+      data-i18n-hour12="{{ 'booking.hour_12' | t }}"
+      data-i18n-hour24="{{ 'booking.hour_24' | t }}"
+      data-i18n-choose-service="{{ 'booking.choose_service' | t }}"
+      data-i18n-choose-service-help="{{ 'booking.choose_service_help' | t }}"
+      data-i18n-change="{{ 'booking.change' | t }}"
+      data-i18n-free="{{ 'booking.free' | t }}"
+      data-i18n-choose-staff="{{ 'booking.choose_staff' | t }}"
+      data-i18n-any-staff="{{ 'booking.any_staff' | t }}"
+      data-i18n-staff="{{ 'booking.staff' | t }}"
       {%- if block.settings.accent_source == 'custom' %}
         style="--sb-accent: {{ block.settings.accent }};"
       {%- endif %}
@@ -332,11 +339,48 @@
                 <p class="sb-modal__desc">{{ block.settings.description | escape }}</p>
               {%- endif -%}
             </div>
-            <button type="button" class="sb-modal__close" data-sb-close aria-label="{{ 'booking.close' | t | escape }}">
+            <button type="button" class="sb-modal__close" data-sb-close aria-label="{{ 'booking.close' | t }}">
               &times;
             </button>
           </header>
-          <div class="sb-modal__body" data-sb-step1>
+          {%- comment -%}
+            With 2+ active services the popup opens on the service cards
+            (booking-extras.js), so the first paint shows the cards' skeleton,
+            not the calendar's; the real cards replace it. The app keeps the
+            active service count on the shop: only an explicit 0 or 1 starts on
+            the calendar. Unknown (not written yet) assumes cards — booking.js
+            switches back to the calendar if the shop turns out to have one.
+          {%- endcomment -%}
+          {%- assign sb_count = shop.metafields.service_booking.service_count.value -%}
+          {%- assign sb_cards = true -%}
+          {%- assign sb_skeletons = 3 -%}
+          {%- if sb_count != blank -%}
+            {%- if sb_count < 2 -%}
+              {%- assign sb_cards = false -%}
+            {%- else -%}
+              {%- assign sb_skeletons = sb_count | at_most: 6 -%}
+            {%- endif -%}
+          {%- endif -%}
+          <div class="sb-modal__body{% if sb_cards %} sb-step-service{% endif %}" data-sb-step1>
+            {%- if sb_cards -%}
+              <div class="sb-services" data-sb-services>
+                <p class="sb-field__label">{{ 'booking.choose_service' | t }}</p>
+                <p class="sb-muted">{{ 'booking.choose_service_help' | t }}</p>
+                <div class="sb-cards" aria-hidden="true">
+                  {%- for i in (1..sb_skeletons) -%}
+                    <div class="sb-card sb-card--skeleton">
+                      <span class="sb-card__thumb"></span>
+                      <span class="sb-card__body">
+                        <span class="sb-skel-bar"></span>
+                        <span class="sb-skel-bar sb-skel-bar--short"></span>
+                      </span>
+                    </div>
+                  {%- endfor -%}
+                </div>
+              </div>
+            {%- else -%}
+              <div class="sb-services" data-sb-services hidden></div>
+            {%- endif -%}
             <div class="sb-cal" data-sb-calendar></div>
             <div class="sb-times" data-sb-times></div>
           </div>

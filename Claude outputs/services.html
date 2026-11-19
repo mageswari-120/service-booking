@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<style>
+:root{
+  --sb-accent:#1f2a6b; --sb-on-accent:#fff; --sb-radius:.5rem;
+  --sb-bg:#fff; --sb-fg:#1a1a1a; --sb-border:rgba(0,0,0,.14);
+  --sb-soft:rgba(0,0,0,.05); --sb-muted:rgba(0,0,0,.55);
+  --sb-tint:color-mix(in srgb,var(--sb-accent) 8%,#fff);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:28px;background:#f6f6f7;color:var(--sb-fg);
+  font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:860px;margin:0 auto;background:var(--sb-bg);
+  border-radius:12px;padding:26px 28px 30px;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.sb-field__label{font-weight:600;font-size:1rem;margin:0 0 .2rem}
+.sb-hint{margin:0 0 .9rem;font-size:.85rem;color:var(--sb-muted)}
+
+/* ---- proposed ---- */
+.sb-services__list{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(15rem,1fr));
+  gap:.6rem;
+}
+.sb-service{
+  position:relative;
+  display:grid;
+  grid-template-columns:auto 1fr;      /* thumb | text */
+  align-items:start;
+  gap:.75rem;
+  padding:.7rem .85rem;
+  border:1px solid var(--sb-border);
+  border-radius:var(--sb-radius);
+  cursor:pointer;
+  transition:border-color .12s,background .12s;
+}
+.sb-service:hover{border-color:color-mix(in srgb,var(--sb-accent) 45%,var(--sb-border))}
+.sb-service:has(input:checked){
+  border-color:var(--sb-accent);
+  background:color-mix(in srgb,var(--sb-accent) 6%,transparent);
+  box-shadow:inset 0 0 0 1px var(--sb-accent);
+}
+.sb-service input{position:absolute;opacity:0;pointer-events:none}
+
+.sb-service__thumb{
+  width:3rem;height:3rem;flex:none;border-radius:calc(var(--sb-radius) - .15rem);
+  object-fit:cover;background:var(--sb-soft);display:grid;place-items:center;
+  font-weight:600;font-size:.95rem;color:var(--sb-muted);overflow:hidden;
+}
+.sb-service__body{min-width:0;padding-right:1.4rem}
+.sb-service__title{
+  display:block;font-weight:500;font-size:.94rem;line-height:1.3;
+  overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow-wrap:break-word;
+}
+.sb-service__meta{
+  display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;
+  margin-top:.25rem;font-size:.82rem;color:var(--sb-muted);
+}
+.sb-service__meta b{font-weight:600;color:var(--sb-fg)}
+.sb-service__dot{opacity:.5}
+.sb-service__tick{
+  position:absolute;top:.55rem;right:.6rem;width:1.05rem;height:1.05rem;
+  border-radius:50%;border:1.5px solid var(--sb-border);display:grid;place-items:center;
+}
+.sb-service:has(input:checked) .sb-service__tick{
+  background:var(--sb-accent);border-color:var(--sb-accent);
+}
+.sb-service__tick svg{display:none}
+.sb-service:has(input:checked) .sb-service__tick svg{display:block}
+.t1{background:linear-gradient(135deg,#dfe7f5,#b9c8ea)}
+.t2{background:linear-gradient(135deg,#f6e2d8,#e7bfa6)}
+.t3{background:linear-gradient(135deg,#dcecdf,#b2d6bd)}
+</style></head><body>
+<div class="wrap">
+  <p class="sb-field__label">Service</p>
+  <p class="sb-hint">Choose what you'd like to book.</p>
+
+  <div class="sb-services__list" role="radiogroup" aria-label="Service">
+
+    <label class="sb-service">
+      <input type="radio" name="svc">
+      <span class="sb-service__thumb t1" aria-hidden="true"></span>
+      <span class="sb-service__body">
+        <span class="sb-service__title">Signature Cut &amp; Finish</span>
+        <span class="sb-service__meta"><b>60 min</b><span class="sb-service__dot">·</span><span>₹1,200</span></span>
+      </span>
+      <span class="sb-service__tick"><svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.2 4.8 8.5 9.5 3.8" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    </label>
+
+    <label class="sb-service">
+      <input type="radio" name="svc" checked>
+      <span class="sb-service__thumb t2" aria-hidden="true"></span>
+      <span class="sb-service__body">
+        <span class="sb-service__title">Beanie (Varying Quantity Tracker Settings) — Navy</span>
+        <span class="sb-service__meta"><b>60 min</b><span class="sb-service__dot">·</span><span>₹850</span></span>
+      </span>
+      <span class="sb-service__tick"><svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.2 4.8 8.5 9.5 3.8" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    </label>
+
+    <label class="sb-service">
+      <input type="radio" name="svc">
+      <span class="sb-service__thumb" aria-hidden="true">BW</span>
+      <span class="sb-service__body">
+        <span class="sb-service__title">Bowtie (rich product media) — Black</span>
+        <span class="sb-service__meta"><b>60 min</b><span class="sb-service__dot">·</span><span>₹400</span></span>
+      </span>
+      <span class="sb-service__tick"><svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.2 4.8 8.5 9.5 3.8" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    </label>
+
+    <label class="sb-service">
+      <input type="radio" name="svc">
+      <span class="sb-service__thumb t3" aria-hidden="true"></span>
+      <span class="sb-service__body">
+        <span class="sb-service__title">Deep Tissue Massage</span>
+        <span class="sb-service__meta"><b>90 min</b><span class="sb-service__dot">·</span><span>₹2,400</span></span>
+      </span>
+      <span class="sb-service__tick"><svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.2 4.8 8.5 9.5 3.8" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    </label>
+
+    <label class="sb-service">
+      <input type="radio" name="svc">
+      <span class="sb-service__thumb" aria-hidden="true">SO</span>
+      <span class="sb-service__body">
+        <span class="sb-service__title">[Socks (2 options)] — Dog / M/L</span>
+        <span class="sb-service__meta"><b>60 min</b><span class="sb-service__dot">·</span><span>Free</span></span>
+      </span>
+      <span class="sb-service__tick"><svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.2 4.8 8.5 9.5 3.8" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    </label>
+
+    <label class="sb-service">
+      <input type="radio" name="svc">
+      <span class="sb-service__thumb t1" aria-hidden="true"></span>
+      <span class="sb-service__body">
+        <span class="sb-service__title">Beanie (Varying Quantity Tracker Settings) — Navy — Blue — Extra Long Variant Title That Keeps Going</span>
+        <span class="sb-service__meta"><b>60 min</b><span class="sb-service__dot">·</span><span>₹850</span></span>
+      </span>
+      <span class="sb-service__tick"><svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.2 4.8 8.5 9.5 3.8" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    </label>
+
+  </div>
+</div></body></html>

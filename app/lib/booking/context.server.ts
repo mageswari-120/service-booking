@@ -3,7 +3,7 @@ import { DateTime } from "luxon";
 
 import db from "../../db.server";
 import { resolveTimezone } from "../shop.server";
-import { splitByService } from "./batch";
+import { splitByService, staffBusyMap } from "./batch";
 import { parseQuestions, type IntakeQuestion } from "./details";
 import type {
   CapacityOverride,
@@ -11,6 +11,7 @@ import type {
   Interval,
   ServiceGeometry,
   SlotUsage,
+  StaffAvailability,
   WeeklyWindow,
 } from "../slots/types";
 
@@ -38,16 +39,36 @@ export interface BookableService {
   /** Asked in the popup's second step. */
   questions: IntakeQuestion[];
   requireSignature: boolean;
+  /** Numeric storefront variant ID the service is sold as. */
+  variantId: string;
+  /** NONE whenever no active staff are assigned, whatever the setting. */
+  staffMode: "NONE" | "OPTIONAL" | "REQUIRED";
+  /** Active staff who perform this service, in display order. */
+  staff: { id: string; name: string }[];
+  /** Services the customer may add after this one in the popup (ids). */
+  comboServiceIds: string[];
+  /** Variant GIDs offered as add-ons in the popup's second step. */
+  upsellVariantIds: string[];
+  /** Cart quantity = party size (price per person); else 1 per booking. */
+  chargePerPerson: boolean;
 }
+
+export type StaffMember = BookableService["staff"][number];
 
 /** The service relations `toBookableService` needs. */
 export const bookableInclude = {
   shop: { select: { timezone: true, holdTtlMinutes: true } },
   availabilityRules: true,
   capacityOverrides: true,
+  staff: { include: { staff: { select: { id: true, name: true, active: true, sortOrder: true } } } },
 } as const;
 
 type ServiceRow = Prisma.ServiceGetPayload<{ include: typeof bookableInclude }>;
+
+/** A JSON column expected to hold string[]; anything else reads as empty. */
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
 
 /** Party-size bounds for a service row, after mode defaults. */
 export function seatLimits(service: {
@@ -64,6 +85,14 @@ export function seatLimits(service: {
 export function toBookableService(service: ServiceRow, now: Date = new Date()): BookableService {
   const timezone = resolveTimezone(service.timezone, service.shop.timezone);
   const { minSeats, maxSeats } = seatLimits(service);
+  const staff =
+    service.staffMode === "NONE"
+      ? []
+      : service.staff
+          .map((s) => s.staff)
+          .filter((s) => s.active)
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+          .map((s) => ({ id: s.id, name: s.name }));
   // Overrides for past dates can't matter; keep yesterday for zone edge cases.
   const fromDate = DateTime.fromJSDate(now, { zone: timezone })
     .minus({ days: 1 })
@@ -105,6 +134,12 @@ export function toBookableService(service: ServiceRow, now: Date = new Date()): 
     maxSeats,
     questions: parseQuestions(service.intakeQuestions),
     requireSignature: service.requireSignature,
+    variantId: service.shopifyVariantId.split("/").pop() ?? "",
+    staffMode: staff.length ? service.staffMode : "NONE",
+    staff,
+    comboServiceIds: stringList(service.comboServiceIds),
+    upsellVariantIds: stringList(service.upsellVariantIds),
+    chargePerPerson: service.chargePerPerson,
   };
 }
 
@@ -228,10 +263,86 @@ export async function buildSlotParams(
     blackouts,
     usage,
     overrides: service.overrides,
+    staff: await staffAvailability(client, service, rangeStart, rangeEnd, now),
     rangeStart,
     rangeEnd,
     now,
   };
+}
+
+/** One day either side: a busy interval can start before the range and still overlap. */
+const STAFF_PAD = 24 * 60 * 60_000;
+
+/**
+ * Each listed staff member's live holds and confirmed bookings around
+ * [from, to), across every service, as buffered intervals.
+ */
+export async function loadStaffBusy(
+  client: Db,
+  staffIds: string[],
+  from: Date,
+  to: Date,
+  now: Date,
+): Promise<Record<string, Interval[]>> {
+  if (!staffIds.length) return {};
+  const startsAt = {
+    gte: new Date(from.getTime() - STAFF_PAD),
+    lt: new Date(to.getTime() + STAFF_PAD),
+  };
+  const service = {
+    select: { durationMinutes: true, bufferBeforeMinutes: true, bufferAfterMinutes: true },
+  };
+  const [holds, bookings] = await Promise.all([
+    client.slotHold.findMany({
+      where: { staffId: { in: staffIds }, consumedAt: null, expiresAt: { gt: now }, startsAt },
+      select: { staffId: true, startsAt: true, service },
+    }),
+    client.booking.findMany({
+      where: { staffId: { in: staffIds }, status: "CONFIRMED", startsAt },
+      select: { staffId: true, startsAt: true, endsAt: true, service },
+    }),
+  ]);
+  return staffBusyMap([...holds, ...bookings]);
+}
+
+/**
+ * The engine's staff input for one service (only the `only` staff, when
+ * given), or undefined when the service has no staff step.
+ */
+export async function staffAvailability(
+  client: Db,
+  service: BookableService,
+  from: Date,
+  to: Date,
+  now: Date,
+  only?: string[],
+): Promise<StaffAvailability | undefined> {
+  if (service.staffMode === "NONE") return undefined;
+  const ids = service.staff.map((s) => s.id).filter((id) => !only || only.includes(id));
+  return { ids, busy: await loadStaffBusy(client, ids, from, to, now) };
+}
+
+/**
+ * The services the customer can add after `service` in the popup, in the
+ * merchant's order: all of them, or only those sold as `variantIds`.
+ */
+export async function loadComboServices(
+  service: BookableService,
+  variantIds?: string[] | null,
+): Promise<BookableService[]> {
+  if (!service.comboServiceIds.length) return [];
+  const rows = await db.service.findMany({
+    where: { id: { in: service.comboServiceIds }, shopId: service.shopId, active: true },
+    include: bookableInclude,
+  });
+  const now = new Date();
+  const byId = new Map(rows.map((r) => [r.id, toBookableService(r, now)]));
+  return service.comboServiceIds
+    .map((id) => byId.get(id))
+    .filter(
+      (s): s is BookableService =>
+        !!s && s.id !== service.id && (!variantIds || variantIds.includes(s.variantId)),
+    );
 }
 
 /**
@@ -293,6 +404,13 @@ export async function buildSlotParamsMany(
     holdRows,
     bookingRows,
   );
+  // Staff are shared between services: read everyone's busy time once.
+  const staffIds = [
+    ...new Set(
+      items.flatMap((i) => (i.service.staffMode === "NONE" ? [] : i.service.staff.map((s) => s.id))),
+    ),
+  ];
+  const busy = await loadStaffBusy(db, staffIds, rangeStart, rangeEnd, now);
   return items.map(({ service, rangeStart: start, rangeEnd: end }) => {
     const own = split.get(service.id) ?? { blackouts: [], usage: [] };
     return {
@@ -301,6 +419,10 @@ export async function buildSlotParamsMany(
       blackouts: own.blackouts,
       usage: own.usage,
       overrides: service.overrides,
+      staff:
+        service.staffMode === "NONE"
+          ? undefined
+          : { ids: service.staff.map((s) => s.id), busy },
       rangeStart: start,
       rangeEnd: end,
       now,

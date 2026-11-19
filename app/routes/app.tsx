@@ -25,6 +25,7 @@ export default function App() {
           Services
         </Link>
         <Link to="/app/bookings">Bookings</Link>
+        <Link to="/app/staff">Staff</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

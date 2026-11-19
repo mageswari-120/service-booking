@@ -34,6 +34,11 @@ export interface BookingLine {
   holdToken: string | null;
   start: Date | null;
   seats: number;
+  /**
+   * `_booking_staff`: the staff id the customer booked. A fallback only —
+   * the hold's own staff wins, since line properties can be edited.
+   */
+  staffId: string | null;
 }
 
 export interface OrderCustomer {
@@ -63,6 +68,7 @@ export function bookingLines(order: OrderPayload): BookingLine[] {
       holdToken,
       start: start && !Number.isNaN(start.getTime()) ? start : null,
       seats: Number.isInteger(seats) && seats > 0 ? seats : 1,
+      staffId: props._booking_staff?.trim() || null,
     });
   }
   return out;

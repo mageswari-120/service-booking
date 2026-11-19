@@ -295,6 +295,47 @@ describe("parseServiceInput — booking popup details", () => {
   });
 });
 
+describe("parseServiceInput — charge per person", () => {
+  it("defaults to one charge per booking and keeps per-person when set", () => {
+    const off = parseServiceInput(valid());
+    expect(off.ok && off.data.chargePerPerson).toBe(false);
+    const on = parseServiceInput(valid({ chargePerPerson: true }));
+    expect(on.ok && on.data.chargePerPerson).toBe(true);
+  });
+});
+
+describe("parseServiceInput — staff and combined services", () => {
+  it("defaults to no staff and no combined services", () => {
+    const result = parseServiceInput(valid());
+    expect(result.ok && result.data).toMatchObject({
+      staffMode: "NONE",
+      staffIds: [],
+      comboServiceIds: [],
+    });
+  });
+
+  it("needs staff when the service has a staff step", () => {
+    expect(errorsOf(valid({ staffMode: "REQUIRED", staffIds: [] }))).toHaveProperty("staffIds");
+    expect(errorsOf(valid({ staffMode: "OPTIONAL" }))).toHaveProperty("staffIds");
+    const ok = parseServiceInput(valid({ staffMode: "REQUIRED", staffIds: ["a", "a", "b"] }));
+    expect(ok.ok && ok.data.staffIds).toEqual(["a", "b"]);
+  });
+
+  it("rejects an unknown staff mode", () => {
+    expect(
+      errorsOf(valid({ staffMode: "SOMETIMES" as unknown as "NONE", staffIds: ["a"] })),
+    ).toHaveProperty("staffMode");
+  });
+
+  it("dedupes combined services and caps them", () => {
+    const ok = parseServiceInput(valid({ comboServiceIds: ["s1", "s1", "s2"] }));
+    expect(ok.ok && ok.data.comboServiceIds).toEqual(["s1", "s2"]);
+    expect(
+      errorsOf(valid({ comboServiceIds: ["1", "2", "3", "4", "5", "6"] })),
+    ).toHaveProperty("comboServiceIds");
+  });
+});
+
 describe("minutesToHhMm", () => {
   it("formats minutes and wraps midnight", () => {
     expect(minutesToHhMm(545)).toBe("09:05");

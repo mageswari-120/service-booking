@@ -76,6 +76,8 @@ export interface ServiceFormInput {
   /** Asked in the booking popup's second step. */
   intakeQuestions: IntakeQuestion[];
   requireSignature: boolean;
+  /** Cart quantity = party size (price per person); else quantity 1. */
+  chargePerPerson?: boolean;
   /** Variant GIDs offered as add-ons in the popup. */
   upsellVariantIds: string[];
   /** Product GIDs whose pages offer this service as an add-on. */
@@ -84,7 +86,21 @@ export interface ServiceFormInput {
   addonLabel?: string | null;
   addonDescription?: string | null;
   addonBadge?: string | null;
+  /** Who performs the service; NONE (default) skips the staff step. */
+  staffMode?: StaffModeInput;
+  /** Staff ids who perform it. The route checks they belong to the shop. */
+  staffIds?: string[];
+  /** Service ids customers can add after this one in the popup. */
+  comboServiceIds?: string[];
 }
+
+export type StaffModeInput = "NONE" | "OPTIONAL" | "REQUIRED";
+
+/** Most services that can be offered alongside one in the popup. */
+export const MAX_COMBO_SERVICES = 5;
+
+/** Most staff one service can list. */
+export const MAX_STAFF_PER_SERVICE = 50;
 
 export interface ServiceData {
   shopifyProductId: string;
@@ -116,11 +132,15 @@ export interface ServiceData {
   }[];
   intakeQuestions: IntakeQuestion[];
   requireSignature: boolean;
+  chargePerPerson: boolean;
   upsellVariantIds: string[];
   addonProductIds: string[];
   addonLabel: string | null;
   addonDescription: string | null;
   addonBadge: string | null;
+  staffMode: StaffModeInput;
+  staffIds: string[];
+  comboServiceIds: string[];
 }
 
 /**
@@ -384,6 +404,24 @@ export function parseServiceInput(input: ServiceFormInput): ParseResult {
     errors.addonBadge = `Keep the badge under ${MAX_ADDON_BADGE} characters.`;
   }
 
+  const staffMode: StaffModeInput = input.staffMode ?? "NONE";
+  if (!["NONE", "OPTIONAL", "REQUIRED"].includes(staffMode)) {
+    errors.staffMode = "Choose how customers pick staff.";
+  }
+  const staffIds = [...new Set((input.staffIds ?? []).filter((id) => typeof id === "string" && id))];
+  if (staffIds.length > MAX_STAFF_PER_SERVICE) {
+    errors.staffIds = `Up to ${MAX_STAFF_PER_SERVICE} staff per service.`;
+  } else if (staffMode !== "NONE" && !staffIds.length) {
+    errors.staffIds = "Choose at least one staff member who performs this service.";
+  }
+
+  const comboServiceIds = [
+    ...new Set((input.comboServiceIds ?? []).filter((id) => typeof id === "string" && id)),
+  ];
+  if (comboServiceIds.length > MAX_COMBO_SERVICES) {
+    errors.comboServiceIds = `Up to ${MAX_COMBO_SERVICES} services.`;
+  }
+
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   return {
@@ -408,11 +446,15 @@ export function parseServiceInput(input: ServiceFormInput): ParseResult {
       capacityOverrides,
       intakeQuestions,
       requireSignature: Boolean(input.requireSignature),
+      chargePerPerson: Boolean(input.chargePerPerson),
       upsellVariantIds,
       addonProductIds,
       addonLabel,
       addonDescription,
       addonBadge,
+      staffMode, 
+      staffIds,
+      comboServiceIds,
     },
   };
 }

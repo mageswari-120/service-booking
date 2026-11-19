@@ -53,6 +53,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         shopifyOrderName: true,
         confirmationSentAt: true,
         service: { select: { title: true } },
+        staff: { select: { name: true } },
       },
     }),
   ]);
@@ -76,6 +77,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       id: b.id,
       when: when.format(b.startsAt),
       service: b.service.title,
+      staff: b.staff?.name ?? null,
       seats: b.seats,
       status: b.status,
       customerName: b.customerName,
@@ -188,7 +190,16 @@ export default function Bookings() {
                       {b.when}
                     </Text>
                   </IndexTable.Cell>
-                  <IndexTable.Cell>{b.service}</IndexTable.Cell>
+                  <IndexTable.Cell>
+                    <BlockStack gap="050">
+                      <Text as="span">{b.service}</Text>
+                      {b.staff ? (
+                        <Text as="span" tone="subdued">
+                          with {b.staff}
+                        </Text>
+                      ) : null}
+                    </BlockStack>
+                  </IndexTable.Cell>
                   <IndexTable.Cell>
                     <BlockStack gap="050">
                       <Text as="span">{b.customerName ?? "—"}</Text>

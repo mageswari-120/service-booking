@@ -6,7 +6,8 @@
  * the time range, how many people, the service's questions, an optional
  * signature, add-on products, and "Add to cart" — which holds the seats
  * (POST /apps/booking/hold, with the details) and then adds the booking and
- * any add-ons to the cart in one /cart/add.js call.
+ * any add-ons to the cart in one /cart/add.js call. Add-ons go in as nested
+ * cart lines under the booking (`parent_id`), flat if Shopify refuses that.
  *
  * Every rule here is re-checked by the hold endpoint (validateHoldDetails).
  *
@@ -35,6 +36,10 @@
  *     // refresh the theme's cart drawer, then open it
  *   });
  */
+// The services checklist and staff picker ship in this same file (esbuild
+// --bundle): they're small, and step 1 needs the checklist anyway.
+import "./booking-extras.js";
+
 (function () {
   "use strict";
 
@@ -148,11 +153,31 @@
         ]), canvas));
     }
 
-    // --- Add-ons (rendered by the block in Liquid) ---------------------------
+    // --- Staff (booking-extras.js; absent or null: no staff step) ------------
+    var staffPick = window.__sbStaff ? window.__sbStaff(ctx) : null;
+    if (staffPick) parts.push(staffPick.node);
+
+    // --- Add-ons (rendered by the block in Liquid, or fetched) ---------------
     var addons = [];
+    var list = el("div", { class: "sb-upsells" });
+    var addTitle = el("p", { class: "sb-field__label", text: t("AddThese") });
     var rows = ctx.upsells ? ctx.upsells.content.querySelectorAll("[data-id]") : [];
+    var mine = {};
+    ctx.detailsEl.__sbRender = mine;
     if (rows.length) {
-      var list = el("div", { class: "sb-upsells" });
+      addRows(rows);
+      parts.push(addTitle, list);
+    } else if (window.__sbRemoteUpsells && state.formId && state.variantId !== state.formId) {
+      // A service switched to from another product: no Liquid template.
+      window.__sbRemoteUpsells(ctx, function (fetched) {
+        if (ctx.detailsEl.__sbRender !== mine) return; // step 2 was redrawn since
+        addRows(fetched);
+        ctx.detailsEl.appendChild(addTitle);
+        ctx.detailsEl.appendChild(list);
+      });
+    }
+
+    function addRows(rows) {
       Array.prototype.forEach.call(rows, function (tpl) {
         var row = tpl.cloneNode(true);
         var item = { id: Number(row.dataset.id), price: Number(row.dataset.price) || 0, qty: 1, on: false };
@@ -174,7 +199,6 @@
         addons.push(item);
         list.appendChild(row);
       });
-      parts.push(el("p", { class: "sb-field__label", text: t("AddThese") }), list);
     }
 
     ctx.detailsEl.textContent = "";
@@ -212,6 +236,7 @@
         showError(firstBad, t("Required"));
         return null;
       }
+      if (staffPick && !staffPick.check(t("Required"))) return null;
       return answers;
     }
 
@@ -235,6 +260,7 @@
         body: JSON.stringify({
           variant: state.variantId,
           start: slot.start,
+          staff: staffPick ? staffPick.value() : undefined,
           seats: seats,
           answers: answers,
           signature: pad ? pad.png() : undefined,
@@ -250,7 +276,9 @@
             return;
           }
           if (res.status !== 200) throw 0;
-          lastHold = res.data.token;
+          lastHold = res.data.holds.map(function (h) {
+            return h.token;
+          });
           return addToCart(res.data, answers);
         })
         .catch(function (message) {
@@ -268,29 +296,42 @@
     }
 
     function addToCart(hold, answers) {
-      // One property per fact, so every theme prints them as separate rows
-      // (and the "Booking cart details" embed can lay them out as a card).
-      var props = {};
-      props[t("AppointmentDate") || "Appointment date"] = ctx.fmt(slot.start, {
-        weekday: "short", day: "numeric", month: "short", year: "numeric",
+      // One cart line per service held (combined services run back to back),
+      // all sharing the staff member and a `_booking_group`.
+      var staff = hold.staff;
+      var lines = hold.holds.map(function (h, i) {
+        // One property per fact, so every theme prints them as separate rows
+        // (and the "Booking cart details" embed can lay them out as a card).
+        var props = {};
+        props[t("AppointmentDate") || "Appointment date"] = ctx.fmt(h.start, {
+          weekday: "short", day: "numeric", month: "short", year: "numeric",
+        });
+        props[t("AppointmentTime") || "Appointment time"] =
+          ctx.formatTime(h.start) + " (" + zoneName(h.start) + ")";
+        if (h.duration) {
+          props[t("Duration") || "Duration"] = t("Minutes", { count: h.duration }) || h.duration + " minutes";
+        }
+        if (staff) props[t("Staff") || "Staff"] = staff.name;
+        if (seats > 1) props[t("People")] = String(seats);
+        // The questions were asked once, for the first service.
+        if (!i) {
+          state.questions.forEach(function (q) {
+            var v = answers[q.id];
+            if (v === true) props[q.label] = t("Yes");
+            else if (v) props[q.label] = v;
+          });
+        }
+        props._booking_start = h.start;
+        props._booking_hold = h.token;
+        props._booking_seats = String(seats);
+        if (staff) props._booking_staff = staff.id;
+        if (hold.holds.length > 1) props._booking_group = hold.holds[0].token.slice(-12);
+        // For the cart's "slot held for N min" (Booking cart details embed).
+        if (hold.expiresAt) props._booking_expires = hold.expiresAt;
+        // Priced per person: one unit per attendee. Per booking: one unit,
+        // the party size travelling as "People" / _booking_seats.
+        return { id: Number(h.variant), quantity: h.perPerson ? seats : 1, properties: props };
       });
-      props[t("AppointmentTime") || "Appointment time"] =
-        ctx.formatTime(slot.start) + " (" + zoneName(slot.start) + ")";
-      if (state.duration) {
-        props[t("Duration") || "Duration"] =
-          t("Minutes", { count: state.duration }) || state.duration + " minutes";
-      }
-      if (seats > 1) props[t("People")] = String(seats);
-      state.questions.forEach(function (q) {
-        var v = answers[q.id];
-        if (v === true) props[q.label] = t("Yes");
-        else if (v) props[q.label] = v;
-      });
-      props._booking_start = hold.start;
-      props._booking_hold = hold.token;
-      props._booking_seats = String(seats);
-      // For the cart's "slot held for N min" (Booking cart details embed).
-      if (hold.expiresAt) props._booking_expires = hold.expiresAt;
 
       var extra = ctx.extraItems ? ctx.extraItems() : [];
       var items;
@@ -302,14 +343,23 @@
         var merged = {};
         var k;
         for (k in line.properties || {}) merged[k] = line.properties[k];
-        for (k in props) merged[k] = props[k];
+        for (k in lines[0].properties) merged[k] = lines[0].properties[k];
         line.properties = merged;
         items = extra;
       } else {
-        items = [{ id: Number(state.variantId), quantity: seats, properties: props }];
+        items = lines;
       }
+      // Add-ons are nested cart lines under what was booked (items[0]: the
+      // first service line, or the product line on the add-on card). Themes
+      // that render nesting indent them; others list them as usual. Either
+      // way they belong to this booking: removing it removes them.
+      var parent = items[0].id;
+      var nested = false;
       addons.forEach(function (a) {
-        if (a.on) items.push({ id: a.id, quantity: a.qty });
+        if (a.on) {
+          items.push({ id: a.id, quantity: a.qty, parent_id: parent });
+          nested = true;
+        }
       });
       var base = (window.Shopify && Shopify.routes && Shopify.routes.root) || "/";
       // Drawer unless the merchant chose "Go to cart page": a block saved
@@ -324,10 +374,23 @@
         });
         body.sections_url = window.location.pathname;
       }
-      return fetch(base + "cart/add.js", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(body),
+      function post() {
+        return fetch(base + "cart/add.js", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(body),
+        });
+      }
+      return post().then(function (res) {
+        // Nesting unavailable (e.g. Script Editor installed): add them flat.
+        if (!res.ok && nested && res.status < 500) {
+          nested = false;
+          items.forEach(function (i) {
+            delete i.parent_id;
+          });
+          return post();
+        }
+        return res;
       }).then(function (res) {
         if (res.ok) {
           if (ctx.done) return ctx.done();

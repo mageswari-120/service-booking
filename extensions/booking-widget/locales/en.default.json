@@ -52,6 +52,11 @@
     "cart_held": "Qty __QTY__ · one slot held for __MIN__ min",
     "cart_held_expired": "Qty __QTY__ · hold expired, check out soon to keep this time",
     "cart_reserved": "Your slot is reserved while you check out.",
-    "cart_includes": "Includes appointment: __WHEN__ — __SERVICE__"
+    "cart_includes": "Includes appointment: __WHEN__ — __SERVICE__",
+    "choose_service": "Service",
+    "choose_service_help": "Choose what you'd like to book.",
+    "choose_staff": "Choose staff",
+    "any_staff": "Any available",
+    "staff": "Staff"
   }
 }

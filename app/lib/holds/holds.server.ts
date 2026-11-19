@@ -3,74 +3,174 @@ import { randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 
 import db from "../../db.server";
-import type { BookableService } from "../booking/context.server";
+import {
+  staffAvailability,
+  type BookableService,
+  type StaffMember,
+} from "../booking/context.server";
 import type { IntakeAnswer } from "../booking/details";
-import { computeSlots } from "../slots/engine";
+import { chainStarts, computeSlots, evaluateAt } from "../slots/engine";
 import type { ComputeSlotsParams, Interval, SlotUsage } from "../slots/types";
 import { holdSecret, signHoldToken, verifyHoldToken } from "./token";
 
-export type HoldResult =
-  | { ok: true; token: string; expiresAt: Date }
+/** What validateHoldDetails accepted for one service of the booking. */
+export interface HoldDetails {
+  seats: number;
+  answers: IntakeAnswer[];
+  signaturePng: Buffer | null;
+}
+
+export interface HoldItem {
+  service: BookableService;
+  details: HoldDetails;
+}
+
+export interface CreatedHold {
+  service: BookableService;
+  token: string;
+  startsAt: Date;
+  expiresAt: Date;
+}
+
+export type HoldsResult =
+  | { ok: true; holds: CreatedHold[]; staff: StaffMember | null }
   | { ok: false; reason: "unavailable" };
 
 /**
- * Reserve `details.seats` seats at `startsAt` for `service.holdTtlMinutes`.
+ * Reserve one or more services booked back to back from `startsAt` (the
+ * first service at `startsAt`, each next one after the previous ends — see
+ * chainStarts), each for its `details.seats`, for the shop's hold time.
+ * All of them or none: a 409 never leaves half a booking held.
  *
  * This is the authoritative capacity check — the slot list the customer saw is
- * already stale. Concurrent requests for the same slot are serialised with a
- * transaction-scoped Postgres advisory lock keyed on (service, start), so two
- * customers cannot both take the last seat. Different slots don't contend.
+ * already stale. Concurrent requests are serialised with transaction-scoped
+ * Postgres advisory locks keyed on (service, start) and, for services with
+ * staff, on each staff member who could be chosen — so two customers can
+ * neither take the last seat nor the same person at overlapping times.
+ * Locks are taken in sorted order, so two chains can't deadlock.
  *
- * `releaseToken` is the customer's previous hold, if they're changing time;
- * it is expired in the same transaction so they never hold two seats.
+ * `staff`: a staff id, or "any"/null to take the first person free for every
+ * staffed service. One person does the whole chain.
+ *
+ * `release` are the customer's previous holds, if they're changing time;
+ * they are expired in the same transaction so they never hold two.
  *
  * `details` (already validated by validateHoldDetails) is stored on the hold
- * for the orders handler: how many seats, the intake answers and signature.
+ * for the orders handler: seats, and on the first service the intake answers
+ * and signature.
  */
-export async function createHold(
-  service: BookableService,
+export async function createHolds(
+  items: HoldItem[],
   startsAt: Date,
-  releaseToken: string | null,
-  details: { seats: number; answers: IntakeAnswer[]; signaturePng: Buffer | null } = {
-    seats: 1,
-    answers: [],
-    signaturePng: null,
-  },
+  opts: { staff?: string | null; release?: string[] } = {},
   now: Date = new Date(),
-): Promise<HoldResult> {
+): Promise<HoldsResult> {
+  if (!items.length) return { ok: false, reason: "unavailable" };
   const secret = holdSecret();
+  const starts = chainStarts(
+    items.map((i) => i.service.geometry),
+    startsAt,
+  );
+  const staffed = items.map((i) => i.service.staffMode !== "NONE");
+
+  // People who perform every staffed service, in the first one's order.
+  let candidates: string[] | null = null;
+  items.forEach((item, i) => {
+    if (!staffed[i]) return;
+    const ids = item.service.staff.map((s) => s.id);
+    candidates = candidates ? candidates.filter((id) => ids.includes(id)) : ids;
+  });
+  const wanted = opts.staff && opts.staff !== "any" ? opts.staff : null;
+  if (candidates && wanted) candidates = (candidates as string[]).includes(wanted) ? [wanted] : [];
+  const people: string[] | null = candidates;
+  if (people && !people.length) return { ok: false, reason: "unavailable" };
 
   return db.$transaction(async (tx) => {
-    const lockKey = `${service.id}|${startsAt.toISOString()}`;
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+    const keys = [
+      ...new Set([
+        ...items.map((it, i) => `${it.service.id}|${starts[i].toISOString()}`),
+        ...(people ?? []).map((id) => `staff|${id}`),
+      ]),
+    ].sort();
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(k)) FROM unnest(${keys}::text[]) AS k`;
 
-    const release =
-      releaseToken && verifyHoldToken(releaseToken, secret) ? releaseToken : null;
+    const release = (opts.release ?? []).filter((t) => verifyHoldToken(t, secret));
+    // One service: expire the old hold inside the snapshot statement (no
+    // extra round trip). Several: expire them all first.
+    let inlineRelease: string | null = null;
+    if (items.length === 1 && release.length <= 1) {
+      inlineRelease = release[0] ?? null;
+    } else if (release.length) {
+      await tx.slotHold.updateMany({
+        where: {
+          token: { in: release },
+          consumedAt: null,
+          serviceId: { in: items.map((i) => i.service.id) },
+        },
+        data: { expiresAt: now },
+      });
+    }
 
-    // Re-run the engine for exactly this instant against fresh usage, so lead
-    // time, opening hours, blackouts and capacity are all re-checked.
-    const params = await snapshotForHold(tx, service, startsAt, now, release);
-    // Capacity units this hold takes: its seats, or one booking.
-    const units = service.capacityMode === "BOOKINGS" ? 1 : details.seats;
-    const offered = computeSlots(params).some(
-      (s) => s.startsAt.getTime() === startsAt.getTime() && s.remaining >= units,
-    );
-    if (!offered) return { ok: false, reason: "unavailable" } as const;
+    let free = people;
+    for (let i = 0; i < items.length; i++) {
+      const { service, details } = items[i];
+      const at = starts[i];
+      // Re-run the engine for exactly this instant against fresh usage, so
+      // opening hours, blackouts and capacity are all re-checked (lead time
+      // too, for the first service).
+      const params = await snapshotForHold(tx, service, at, now, inlineRelease);
+      if (staffed[i] && people) {
+        params.staff = await staffAvailability(
+          tx,
+          service,
+          at,
+          new Date(at.getTime() + 1),
+          now,
+          people,
+        );
+      }
+      const slot =
+        i === 0
+          ? computeSlots(params).find((s) => s.startsAt.getTime() === at.getTime())
+          : evaluateAt(params, at);
+      // Capacity units this hold takes: its seats, or one booking.
+      const units = service.capacityMode === "BOOKINGS" ? 1 : details.seats;
+      if (!slot || slot.remaining < units) return { ok: false, reason: "unavailable" } as const;
+      if (free && slot.staff) {
+        const open = slot.staff;
+        free = free.filter((id) => open.includes(id));
+      }
+    }
+    if (free && !free.length) return { ok: false, reason: "unavailable" } as const;
+    const staffId = free ? free[0] : null;
 
-    const token = signHoldToken(randomBytes(16).toString("base64url"), secret);
-    const expiresAt = new Date(now.getTime() + service.holdTtlMinutes * 60_000);
-    await tx.slotHold.create({
-      data: {
-        serviceId: service.id,
-        startsAt,
-        token,
-        expiresAt,
-        seats: details.seats,
-        intakeAnswers: details.answers.length ? (details.answers as object[]) : undefined,
-        signaturePng: details.signaturePng ? new Uint8Array(details.signaturePng) : undefined,
-      },
+    const expiresAt = new Date(now.getTime() + items[0].service.holdTtlMinutes * 60_000);
+    const holds: CreatedHold[] = items.map((item, i) => ({
+      service: item.service,
+      token: signHoldToken(randomBytes(16).toString("base64url"), secret),
+      startsAt: starts[i],
+      expiresAt,
+    }));
+    await tx.slotHold.createMany({
+      data: holds.map((h, i) => {
+        const { details } = items[i];
+        return {
+          serviceId: h.service.id,
+          startsAt: h.startsAt,
+          token: h.token,
+          expiresAt,
+          seats: details.seats,
+          staffId: staffed[i] ? staffId : null,
+          intakeAnswers: details.answers.length ? (details.answers as object[]) : undefined,
+          signaturePng: details.signaturePng ? new Uint8Array(details.signaturePng) : undefined,
+        };
+      }),
     });
-    return { ok: true, token, expiresAt } as const;
+    const staff =
+      staffId === null
+        ? null
+        : (items.flatMap((i) => i.service.staff).find((s) => s.id === staffId) ?? null);
+    return { ok: true, holds, staff } as const;
   });
 }
 

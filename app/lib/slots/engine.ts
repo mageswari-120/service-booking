@@ -7,6 +7,7 @@ import type {
   ServiceGeometry,
   Slot,
   SlotUsage,
+  StaffAvailability,
   WeeklyWindow,
 } from "./types";
 
@@ -75,6 +76,19 @@ function overlaps(a: Interval, b: Interval): boolean {
 
 function usageKey(d: Date): number {
   return d.getTime();
+}
+
+/**
+ * Staff (in `staff.ids` order) with nothing booked overlapping `span` — the
+ * candidate appointment including its buffers. Null when the service has no
+ * staff step, so callers can tell "no staff" from "no one free".
+ */
+export function staffFreeAt(
+  staff: StaffAvailability | undefined,
+  span: Interval,
+): string[] | null {
+  if (!staff || !staff.ids.length) return null;
+  return staff.ids.filter((id) => !(staff.busy[id] ?? []).some((b) => overlaps(span, b)));
 }
 
 function buildUsageMap(usage: SlotUsage[]): Map<number, number> {
@@ -150,6 +164,7 @@ export function computeSlots({
   blackouts,
   usage,
   overrides,
+  staff,
   rangeStart,
   rangeEnd,
   now,
@@ -230,11 +245,16 @@ export function computeSlots({
         // A 0 limit closes the slot: never offered, not even as booked out.
         if (capacity <= 0) continue;
         const remaining = capacity - (usageMap.get(key) ?? 0);
-        const full = remaining <= 0 || remaining < minUnits;
+        // Staff serve a whole booking, whatever its party size: no one free
+        // makes the slot full, but free staff don't cap the seats left.
+        const free = staffFreeAt(staff, blocked);
+        const full = remaining <= 0 || remaining < minUnits || (free !== null && !free.length);
         if (full && !includeFull) continue;
 
         seen.add(key);
-        slots.push({ startsAt, endsAt, capacity, remaining: full ? 0 : remaining });
+        const slot: Slot = { startsAt, endsAt, capacity, remaining: full ? 0 : remaining };
+        if (free) slot.staff = free;
+        slots.push(slot);
       }
     }
   }
@@ -250,14 +270,141 @@ export function computeSlots({
  * storefront can switch days without another request.
  */
 export function slotsByDay(params: ComputeSlotsParams): Record<string, Slot[]> {
-  const zone = params.service.timezone;
+  return groupByDay(computeSlots(params), params.service.timezone);
+}
+
+/** Sorted slots grouped by local date in `zone`, each day kept in order. */
+export function groupByDay(slots: Slot[], zone: string): Record<string, Slot[]> {
   const byDay: Record<string, Slot[]> = {};
-  // computeSlots returns slots sorted by start, so each day stays in order.
-  for (const slot of computeSlots(params)) {
+  for (const slot of slots) {
     const day = DateTime.fromJSDate(slot.startsAt, { zone }).toFormat("yyyy-MM-dd");
     (byDay[day] ??= []).push(slot);
   }
   return byDay;
+}
+
+/**
+ * The service as it stands at exactly `startsAt`, off the slot grid: inside
+ * an opening window (appointment fits), clear of blackouts, limit above 0,
+ * with its remaining capacity and free staff. Null when it isn't open then.
+ * Lead time and booking horizon are NOT checked: a combined service starts
+ * after the first one, which already passed them.
+ */
+export function evaluateAt(
+  params: Pick<ComputeSlotsParams, "service" | "windows" | "blackouts" | "usage" | "overrides" | "staff">,
+  startsAt: Date,
+): Slot | null {
+  const { service } = params;
+  if (service.durationMinutes <= 0) return null;
+  const local = DateTime.fromJSDate(startsAt, { zone: service.timezone });
+  const minute = local.hour * 60 + local.minute;
+  const dayOfWeek = local.weekday % 7;
+  const window = params.windows.find(
+    (w) =>
+      w.dayOfWeek === dayOfWeek &&
+      minute >= w.startMinute &&
+      minute + service.durationMinutes <= w.endMinute,
+  );
+  if (!window) return null;
+
+  const endsAt = new Date(startsAt.getTime() + service.durationMinutes * 60_000);
+  const blocked: Interval = {
+    startsAt: new Date(startsAt.getTime() - service.bufferBeforeMinutes * 60_000),
+    endsAt: new Date(endsAt.getTime() + service.bufferAfterMinutes * 60_000),
+  };
+  if (params.blackouts.some((b) => overlaps(blocked, b))) return null;
+
+  const capacity = capacityAt(
+    service,
+    window,
+    params.overrides,
+    local.toFormat("yyyy-MM-dd"),
+    minute,
+  );
+  if (capacity <= 0) return null;
+  const used = params.usage
+    .filter((u) => u.startsAt.getTime() === startsAt.getTime())
+    .reduce((sum, u) => sum + u.count, 0);
+  const remaining = capacity - used;
+  const minUnits = Math.max(1, service.minUnitsPerHold ?? 1);
+  const free = staffFreeAt(params.staff, blocked);
+  const full = remaining < minUnits || (free !== null && !free.length);
+  const slot: Slot = { startsAt, endsAt, capacity, remaining: full ? 0 : remaining };
+  if (free) slot.staff = free;
+  return slot;
+}
+
+/**
+ * Start times of services booked back to back from `startsAt`: each begins
+ * when the one before it ends, plus that one's after-buffer and its own
+ * before-buffer, so the chain never collides with itself.
+ */
+export function chainStarts(
+  services: Pick<ServiceGeometry, "durationMinutes" | "bufferBeforeMinutes" | "bufferAfterMinutes">[],
+  startsAt: Date,
+): Date[] {
+  const out: Date[] = [];
+  let at = startsAt.getTime();
+  services.forEach((s, i) => {
+    if (i > 0) {
+      const prev = services[i - 1];
+      at += (prev.durationMinutes + prev.bufferAfterMinutes + s.bufferBeforeMinutes) * 60_000;
+    }
+    out.push(new Date(at));
+  });
+  return out;
+}
+
+/** Minutes from the chain's first start to the end of its last service. */
+export function chainMinutes(
+  services: Pick<ServiceGeometry, "durationMinutes" | "bufferBeforeMinutes" | "bufferAfterMinutes">[],
+): number {
+  if (!services.length) return 0;
+  const starts = chainStarts(services, new Date(0));
+  return starts[starts.length - 1].getTime() / 60_000 + services[services.length - 1].durationMinutes;
+}
+
+/**
+ * Slots for several services booked back to back, the first one's params
+ * deciding the candidate starts (its grid, lead time, horizon, range). A
+ * start is offered only when every later service is open at its own start;
+ * `remaining` is the smallest left across the chain (display only — each
+ * hold re-checks its own service), and `staff` the people free for every
+ * service that has staff. One person does the whole chain.
+ */
+export function comboSlots(chain: ComputeSlotsParams[]): Slot[] {
+  if (!chain.length) return [];
+  const [first, ...rest] = chain;
+  if (!rest.length) return computeSlots(first);
+  const geometry = chain.map((c) => c.service);
+  const out: Slot[] = [];
+
+  for (const head of computeSlots(first)) {
+    const starts = chainStarts(geometry, head.startsAt);
+    let remaining = head.remaining;
+    let capacity = head.capacity;
+    let staff = head.staff;
+    let endsAt = head.endsAt;
+    let open = true;
+    for (let i = 0; i < rest.length; i++) {
+      const s = evaluateAt(rest[i], starts[i + 1]);
+      if (!s) {
+        open = false;
+        break;
+      }
+      remaining = Math.min(remaining, s.remaining);
+      capacity = Math.min(capacity, s.capacity);
+      if (s.staff) staff = staff ? staff.filter((id) => s.staff!.includes(id)) : s.staff;
+      endsAt = s.endsAt;
+    }
+    if (!open) continue;
+    if (staff && !staff.length) remaining = 0;
+    if (remaining <= 0 && !first.includeFull) continue;
+    const slot: Slot = { startsAt: head.startsAt, endsAt, capacity, remaining: Math.max(0, remaining) };
+    if (staff) slot.staff = staff;
+    out.push(slot);
+  }
+  return out;
 }
 
 /** Local calendar dates ("YYYY-MM-DD", service timezone) with at least one slot. */

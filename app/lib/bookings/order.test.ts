@@ -15,6 +15,7 @@ describe("bookingLines", () => {
             { name: "_booking_start", value: "2026-11-13T14:00:00.000Z" },
             { name: "_booking_hold", value: "abc.def" },
             { name: "_booking_seats", value: "3" },
+            { name: "_booking_staff", value: " staff_1 " },
           ],
         },
       ],
@@ -26,8 +27,16 @@ describe("bookingLines", () => {
         holdToken: "abc.def",
         start: new Date("2026-11-13T14:00:00.000Z"),
         seats: 3,
+        staffId: "staff_1",
       },
     ]);
+  });
+
+  it("has no staff when the line doesn't name one", () => {
+    const [line] = bookingLines({
+      line_items: [{ id: 3, properties: [{ name: "_booking_hold", value: "x.y" }] }],
+    });
+    expect(line.staffId).toBeNull();
   });
 
   it("defaults bad seats to 1 and bad starts to null", () => {
