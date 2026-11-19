@@ -116,7 +116,12 @@
     if (picking) ctx.setStatus("");
     // Redrawn only when something shown changes: a redraw on every month
     // load would move focus away from the card the customer just picked.
-    var key = [box.__sbStep, state.variantId, !!data, services.map(function (s) { return s.variantId; })].join("|");
+    var people = state.staffMode && state.staffMode !== "NONE" ? state.staff || [] : [];
+    var key = [
+      box.__sbStep, state.variantId, !!data, state.only,
+      services.map(function (s) { return s.variantId; }),
+      people.map(function (p) { return p.id; }),
+    ].join("|");
     if (box.__sbKey === key) return;
     box.__sbKey = key;
     box.textContent = "";
@@ -163,6 +168,26 @@
           },
         }),
       ]));
+      // Staff first: pick who, then the calendar shows only their times.
+      if (people.length > 1) {
+        var row = el("div", { class: "sb-staff sb-staff--first", role: "radiogroup", "aria-label": t("ChooseStaff") || "Choose staff" });
+        [{ id: "", name: t("AnyStaff") || "Any available" }].concat(people).forEach(function (p) {
+          row.appendChild(el("button", {
+            type: "button",
+            role: "radio",
+            "aria-checked": String((state.only || "") === p.id),
+            text: p.name,
+            onclick: function () {
+              if ((state.only || "") === p.id) return;
+              state.only = p.id || null;
+              // Reload this service's month for that person.
+              ctx.change(state.variantId);
+            },
+          }));
+        });
+        box.appendChild(el("p", { class: "sb-field__label", text: t("ChooseStaff") || "Choose staff" }));
+        box.appendChild(row);
+      }
       return;
     }
 
@@ -177,7 +202,10 @@
           box.__sbStep = "chosen";
           // Another service: booking.js reloads its month (and calls
           // __sbServices again); the summary shows meanwhile.
-          if (s.variantId !== state.variantId) ctx.change(s.variantId);
+          if (s.variantId !== state.variantId) {
+            state.only = null; // staff differ per service
+            ctx.change(s.variantId);
+          }
           draw(ctx, box);
         },
       }, [thumb(s), body(s)]));
@@ -218,23 +246,35 @@
     var t = ctx.t;
     if (!state.staffMode || state.staffMode === "NONE" || !state.staff || !state.staff.length) return null;
 
+    // Everyone is listed; those busy or off at the picked time are greyed.
     var free = state.pick && state.pick.staff;
-    var people = state.staff.filter(function (p) {
-      return !free || free.indexOf(p.id) >= 0;
+    var isFree = function (id) {
+      return !free || free.indexOf(id) >= 0;
+    };
+    // Chosen before the calendar ("staff first"): the times were that
+    // person's, so they're the one shown here (change it above the calendar).
+    var chosen = state.only && state.staff.filter(function (p) { return p.id === state.only; });
+    var people = chosen && chosen.length ? chosen : state.staff;
+    var open = people.filter(function (p) {
+      return isFree(p.id);
     });
     var optional = state.staffMode === "OPTIONAL";
-    // Nothing to choose between: preselect. Required with several: the
-    // customer must pick.
-    var pick = optional ? "any" : people.length === 1 ? people[0].id : null;
+    // The "staff first" choice carries over. Otherwise: nothing to choose
+    // between, preselect; required with several, the customer must pick.
+    var pick = state.only && isFree(state.only)
+      ? state.only
+      : optional ? "any" : open.length === 1 ? open[0].id : null;
     var error = el("p", { class: "sb-field__error", role: "alert" });
     var group = el("div", { class: "sb-staff", role: "radiogroup", "aria-label": t("ChooseStaff") || "Choose staff" });
     var buttons = [];
 
-    function option(id, label) {
+    function option(id, label, busy) {
       var b = el("button", {
         type: "button",
         role: "radio",
         "aria-checked": String(pick === id),
+        disabled: busy ? "" : false,
+        title: busy ? t("Unavailable") || "Unavailable" : null,
         text: label,
         onclick: function () {
           pick = id;
@@ -244,14 +284,15 @@
           });
         },
       });
+      if (busy) b.appendChild(el("small", { text: t("Unavailable") || "Unavailable" }));
       b.__sbId = id;
       buttons.push(b);
       group.appendChild(b);
     }
 
-    if (optional) option("any", t("AnyStaff") || "Any available");
+    if (optional && people === state.staff) option("any", t("AnyStaff") || "Any available");
     people.forEach(function (p) {
-      option(p.id, p.name);
+      option(p.id, p.name, !isFree(p.id));
     });
 
     return {
@@ -266,7 +307,8 @@
       /** False (and shows `message`) when nobody is picked yet. */
       check: function (message) {
         error.textContent = pick ? "" : message;
-        if (!pick && buttons[0]) buttons[0].focus();
+        var first = buttons.filter(function (x) { return !x.disabled; })[0];
+        if (!pick && first) first.focus();
         return !!pick;
       },
     };

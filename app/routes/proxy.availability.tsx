@@ -11,7 +11,7 @@ import { NOT_BOOKABLE, proxyJson, proxyShop } from "../lib/booking/proxy.server"
 import { chainMinutes } from "../lib/slots/engine";
 
 /**
- * GET /apps/booking/availability?variant=<id>&month=YYYY-MM[&with=<id>,<id>]
+ * GET /apps/booking/availability?variant=<id>&month=YYYY-MM[&with=<id>,<id>][&staff=<id>]
  *
  * Which days of a month have at least one open slot, plus those slots grouped
  * by day — computing the days already produces them, and shipping them lets
@@ -44,11 +44,19 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const chain = withIds.length ? await loadComboServices(service, withIds) : [];
   const tService = performance.now();
 
+  // `staff=<id>` (the popup's "staff first" choice): times when that person
+  // is free and working. Someone who doesn't do these services is ignored.
+  const only = url.searchParams.get("staff") ?? "";
+  const narrow = (s: typeof service) =>
+    s.staffMode !== "NONE" && s.staff.some((p) => p.id === only)
+      ? { ...s, staff: s.staff.filter((p) => p.id === only) }
+      : s;
+
   // Booked-out slots come too (remaining 0), so the widget can show them
   // struck through; `days` lists only the days that can still be booked.
   // The shop's services (the popup's "Service" switcher) load alongside.
   const [{ month, firstMonth, lastMonth, days, slots }, all] = await Promise.all([
-    monthComboSlots(service, chain, url.searchParams.get("month")),
+    monthComboSlots(narrow(service), chain.map(narrow), url.searchParams.get("month")),
     loadBookableServices(shop!),
   ]);
   const tEnd = performance.now();

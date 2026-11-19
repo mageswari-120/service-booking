@@ -7,7 +7,9 @@ import {
   comboSlots,
   computeSlots,
   evaluateAt,
+  leastBusy,
   staffFreeAt,
+  staffOffDuty,
 } from "./engine";
 import type { ComputeSlotsParams, ServiceGeometry } from "./types";
 
@@ -188,5 +190,77 @@ describe("comboSlots", () => {
     expect(slots.map((s) => s.staff)).toEqual([[], [], ["p1"]]);
     expect(slots.map((s) => s.remaining)).toEqual([0, 0, 1]);
     expect(times(comboSlots([{ ...a, includeFull: false }, b]))).toEqual(["11:00"]);
+  });
+});
+
+describe("staff hours and days off", () => {
+  // Works Tuesdays 10:00–11:00 only.
+  const schedule = { hours: [{ dayOfWeek: TUE, startMinute: h(10), endMinute: h(11) }], daysOff: [] };
+  const offFor = (s: typeof schedule | { hours: null; daysOff: string[] }) =>
+    staffOffDuty(s, NY, at("2027-05-31T00:00"), at("2027-06-03T00:00"));
+
+  it("is off outside their hours and on days without hours", () => {
+    const off = offFor(schedule);
+    const staff = { ids: ["p1"], busy: {}, off: { p1: off } };
+    const slots = computeSlots(params({ staff, includeFull: true }));
+    expect(slots.map((s) => [DateTime.fromJSDate(s.startsAt, { zone: NY }).toFormat("HH:mm"), s.remaining])).toEqual([
+      ["09:00", 0],
+      ["10:00", 1],
+      ["11:00", 0],
+    ]);
+    // Monday is a day without hours: off from midnight to midnight.
+    expect(off.some((i) => i.startsAt.getTime() === at("2027-05-31T00:00").getTime())).toBe(true);
+  });
+
+  it("is off all day on a day off", () => {
+    const off = offFor({ hours: null, daysOff: ["2027-06-01"] });
+    const slots = computeSlots(params({ staff: { ids: ["p1"], busy: {}, off: { p1: off } }, includeFull: true }));
+    expect(slots.every((s) => s.remaining === 0)).toBe(true);
+  });
+
+  it("changes nothing without own hours or days off", () => {
+    expect(offFor({ hours: null, daysOff: [] })).toEqual([]);
+    const slots = computeSlots(params({ staff: { ids: ["p1"], busy: {}, off: { p1: [] } } }));
+    expect(slots).toHaveLength(3);
+  });
+
+  it("checks hours against the appointment, not its buffers", () => {
+    const off = offFor(schedule);
+    const span = { startsAt: at("2027-06-01T09:45"), endsAt: at("2027-06-01T11:15") };
+    const appointment = { startsAt: at("2027-06-01T10:00"), endsAt: at("2027-06-01T11:00") };
+    expect(staffFreeAt({ ids: ["p1"], busy: {}, off: { p1: off } }, span, appointment)).toEqual(["p1"]);
+  });
+
+  it("follows the local day across a DST change", () => {
+    // 2027-03-14: New York springs forward. Sunday 10:00–11:00 local.
+    const off = staffOffDuty(
+      { hours: [{ dayOfWeek: 0, startMinute: h(10), endMinute: h(11) }], daysOff: [] },
+      NY,
+      at("2027-03-14T00:00"),
+      at("2027-03-14T12:00"),
+    );
+    const free = staffFreeAt(
+      { ids: ["p1"], busy: {}, off: { p1: off } },
+      { startsAt: at("2027-03-14T10:00"), endsAt: at("2027-03-14T11:00") },
+    );
+    expect(free).toEqual(["p1"]);
+  });
+});
+
+describe("leastBusy", () => {
+  const busy = {
+    p1: [{ startsAt: at("2027-06-01T09:00"), endsAt: at("2027-06-01T10:00") }],
+    p2: [{ startsAt: at("2027-06-02T09:00"), endsAt: at("2027-06-02T10:00") }],
+  };
+  const staff = { ids: ["p1", "p2"], busy };
+
+  it("picks whoever has the fewest bookings that day", () => {
+    expect(leastBusy(["p1", "p2"], staff, at("2027-06-01T14:00"), NY)).toBe("p2");
+    expect(leastBusy(["p1", "p2"], staff, at("2027-06-02T14:00"), NY)).toBe("p1");
+  });
+
+  it("keeps the merchant's order on a tie", () => {
+    expect(leastBusy(["p1", "p2"], staff, at("2027-06-05T14:00"), NY)).toBe("p1");
+    expect(leastBusy(["p2"], staff, at("2027-06-02T14:00"), NY)).toBe("p2");
   });
 });

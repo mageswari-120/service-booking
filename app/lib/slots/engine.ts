@@ -8,6 +8,7 @@ import type {
   Slot,
   SlotUsage,
   StaffAvailability,
+  StaffSchedule,
   WeeklyWindow,
 } from "./types";
 
@@ -79,16 +80,98 @@ function usageKey(d: Date): number {
 }
 
 /**
- * Staff (in `staff.ids` order) with nothing booked overlapping `span` — the
- * candidate appointment including its buffers. Null when the service has no
- * staff step, so callers can tell "no staff" from "no one free".
+ * Staff (in `staff.ids` order) free for an appointment: nothing booked
+ * overlapping `span` (the appointment with its buffers) and on duty for all
+ * of `appointment` itself (buffers may fall outside their hours, as they may
+ * outside the service's). Null when the service has no staff step, so
+ * callers can tell "no staff" from "no one free".
  */
 export function staffFreeAt(
   staff: StaffAvailability | undefined,
   span: Interval,
+  appointment: Interval = span,
 ): string[] | null {
   if (!staff || !staff.ids.length) return null;
-  return staff.ids.filter((id) => !(staff.busy[id] ?? []).some((b) => overlaps(span, b)));
+  return staff.ids.filter(
+    (id) =>
+      !(staff.busy[id] ?? []).some((b) => overlaps(span, b)) &&
+      !(staff.off?.[id] ?? []).some((b) => overlaps(appointment, b)),
+  );
+}
+
+/**
+ * "Any available": of the people `free`, the one with the fewest holds and
+ * bookings (`staff.busy`) starting on `at`'s local day, so work spreads
+ * evenly. Ties keep the merchant's order (the first free person).
+ */
+export function leastBusy(
+  free: string[],
+  staff: StaffAvailability | undefined,
+  at: Date,
+  zone: string,
+): string {
+  if (free.length < 2 || !staff) return free[0];
+  const day = DateTime.fromJSDate(at, { zone });
+  const from = day.startOf("day").toMillis();
+  const to = day.plus({ days: 1 }).startOf("day").toMillis();
+  const load = (id: string) =>
+    (staff.busy[id] ?? []).filter((b) => {
+      const t = b.startsAt.getTime();
+      return t >= from && t < to;
+    }).length;
+  let best = free[0];
+  let bestLoad = load(best);
+  for (const id of free.slice(1)) {
+    const l = load(id);
+    if (l < bestLoad) {
+      best = id;
+      bestLoad = l;
+    }
+  }
+  return best;
+}
+
+/**
+ * When a staff member is NOT working within [from, to): the time outside
+ * their weekly `hours` (a day without hours is off entirely) plus whole days
+ * off, as UTC intervals. `hours` null means "the service's hours": only the
+ * days off then. Local days in `zone`, so DST shifts are followed.
+ */
+export function staffOffDuty(
+  schedule: StaffSchedule,
+  zone: string,
+  from: Date,
+  to: Date,
+): Interval[] {
+  const { hours, daysOff } = schedule;
+  if (!hours && !daysOff.length) return [];
+  const off = new Set(daysOff);
+  const out: Interval[] = [];
+  const first = DateTime.fromJSDate(from, { zone }).startOf("day");
+  const last = DateTime.fromJSDate(to, { zone }).startOf("day");
+  for (let day = first; day <= last; day = day.plus({ days: 1 })) {
+    const dayStart = day.toJSDate();
+    const dayEnd = day.plus({ days: 1 }).startOf("day").toJSDate();
+    if (off.has(day.toFormat("yyyy-MM-dd"))) {
+      out.push({ startsAt: dayStart, endsAt: dayEnd });
+      continue;
+    }
+    if (!hours) continue;
+    const dayOfWeek = day.weekday % 7;
+    const windows = hours
+      .filter((h) => h.dayOfWeek === dayOfWeek && h.endMinute > h.startMinute)
+      .sort((a, b) => a.startMinute - b.startMinute);
+    // The gaps between the working windows, from midnight to midnight.
+    let cursor = dayStart;
+    for (const w of windows) {
+      const start = localToUtc(day, w.startMinute) ?? dayStart;
+      const end = localToUtc(day, w.endMinute) ?? dayEnd;
+      if (start > cursor) out.push({ startsAt: cursor, endsAt: start });
+      if (end > cursor) cursor = end;
+    }
+    if (cursor < dayEnd) out.push({ startsAt: cursor, endsAt: dayEnd });
+  }
+  return out;
 }
 
 function buildUsageMap(usage: SlotUsage[]): Map<number, number> {
@@ -247,7 +330,7 @@ export function computeSlots({
         const remaining = capacity - (usageMap.get(key) ?? 0);
         // Staff serve a whole booking, whatever its party size: no one free
         // makes the slot full, but free staff don't cap the seats left.
-        const free = staffFreeAt(staff, blocked);
+        const free = staffFreeAt(staff, blocked, { startsAt, endsAt });
         const full = remaining <= 0 || remaining < minUnits || (free !== null && !free.length);
         if (full && !includeFull) continue;
 
@@ -327,7 +410,7 @@ export function evaluateAt(
     .reduce((sum, u) => sum + u.count, 0);
   const remaining = capacity - used;
   const minUnits = Math.max(1, service.minUnitsPerHold ?? 1);
-  const free = staffFreeAt(params.staff, blocked);
+  const free = staffFreeAt(params.staff, blocked, { startsAt, endsAt });
   const full = remaining < minUnits || (free !== null && !free.length);
   const slot: Slot = { startsAt, endsAt, capacity, remaining: full ? 0 : remaining };
   if (free) slot.staff = free;

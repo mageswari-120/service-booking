@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   minutesToHhMm,
   parseServiceInput,
+  parseStaffSchedule,
+  readStaffSchedule,
   type ServiceFormInput,
 } from "./validation";
 
@@ -340,5 +342,46 @@ describe("minutesToHhMm", () => {
   it("formats minutes and wraps midnight", () => {
     expect(minutesToHhMm(545)).toBe("09:05");
     expect(minutesToHhMm(1440)).toBe("00:00");
+  });
+});
+
+describe("parseStaffSchedule", () => {
+  it("accepts hours and days off, midnight as an end", () => {
+    const r = parseStaffSchedule({
+      hours: [{ dayOfWeek: 2, start: "10:00", end: "00:00" }],
+      daysOff: ["2026-11-25", "2026-11-25", "2026-11-24"],
+    });
+    expect(r).toEqual({
+      ok: true,
+      data: { hours: [{ dayOfWeek: 2, startMinute: 600, endMinute: 1440 }], daysOff: ["2026-11-24", "2026-11-25"] },
+    });
+  });
+
+  it("keeps null hours (the service's hours)", () => {
+    expect(parseStaffSchedule({ hours: null, daysOff: [] })).toEqual({ ok: true, data: { hours: null, daysOff: [] } });
+  });
+
+  it("rejects an end before the start, bad times and bad dates", () => {
+    expect(parseStaffSchedule({ hours: [{ dayOfWeek: 1, start: "12:00", end: "09:00" }] })).toMatchObject({
+      ok: false,
+      errors: { hours: expect.stringContaining("Monday") },
+    });
+    expect(parseStaffSchedule({ hours: [{ dayOfWeek: 1, start: "9am", end: "17:00" }] })).toMatchObject({ ok: false });
+    expect(parseStaffSchedule({ daysOff: ["2026-02-30"] })).toMatchObject({ ok: false, errors: { daysOff: expect.any(String) } });
+  });
+
+  it("limits time ranges per day", () => {
+    const hours = [1, 2, 3, 4].map((i) => ({ dayOfWeek: 3, start: `0${i}:00`, end: `0${i}:30` }));
+    expect(parseStaffSchedule({ hours })).toMatchObject({ ok: false, errors: { hours: expect.any(String) } });
+  });
+});
+
+describe("readStaffSchedule", () => {
+  it("drops malformed stored values", () => {
+    expect(readStaffSchedule([{ dayOfWeek: 1, startMinute: 60, endMinute: 120 }, { x: 1 }], ["2026-01-01", 5, "nope"])).toEqual({
+      hours: [{ dayOfWeek: 1, startMinute: 60, endMinute: 120 }],
+      daysOff: ["2026-01-01"],
+    });
+    expect(readStaffSchedule(null, null)).toEqual({ hours: null, daysOff: [] });
   });
 });

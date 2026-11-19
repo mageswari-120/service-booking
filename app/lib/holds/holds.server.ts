@@ -9,8 +9,8 @@ import {
   type StaffMember,
 } from "../booking/context.server";
 import type { IntakeAnswer } from "../booking/details";
-import { chainStarts, computeSlots, evaluateAt } from "../slots/engine";
-import type { ComputeSlotsParams, Interval, SlotUsage } from "../slots/types";
+import { chainStarts, computeSlots, evaluateAt, leastBusy } from "../slots/engine";
+import type { ComputeSlotsParams, Interval, SlotUsage, StaffAvailability } from "../slots/types";
 import { holdSecret, signHoldToken, verifyHoldToken } from "./token";
 
 /** What validateHoldDetails accepted for one service of the booking. */
@@ -112,6 +112,8 @@ export async function createHolds(
     }
 
     let free = people;
+    // The first staffed service's staff input: its busy times rank "Any".
+    let firstStaff: StaffAvailability | undefined;
     for (let i = 0; i < items.length; i++) {
       const { service, details } = items[i];
       const at = starts[i];
@@ -128,6 +130,7 @@ export async function createHolds(
           now,
           people,
         );
+        firstStaff ??= params.staff;
       }
       const slot =
         i === 0
@@ -142,7 +145,9 @@ export async function createHolds(
       }
     }
     if (free && !free.length) return { ok: false, reason: "unavailable" } as const;
-    const staffId = free ? free[0] : null;
+    const staffId = free
+      ? leastBusy(free, firstStaff, starts[0], items[0].service.geometry.timezone)
+      : null;
 
     const expiresAt = new Date(now.getTime() + items[0].service.holdTtlMinutes * 60_000);
     const holds: CreatedHold[] = items.map((item, i) => ({

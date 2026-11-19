@@ -12,8 +12,11 @@ import type {
   ServiceGeometry,
   SlotUsage,
   StaffAvailability,
+  StaffSchedule,
   WeeklyWindow,
 } from "../slots/types";
+import { staffOffDuty } from "../slots/engine";
+import { readStaffSchedule } from "../services/validation";
 
 /** Either the shared client or the client inside a `$transaction`. */
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -45,6 +48,8 @@ export interface BookableService {
   staffMode: "NONE" | "OPTIONAL" | "REQUIRED";
   /** Active staff who perform this service, in display order. */
   staff: { id: string; name: string }[];
+  /** Own hours / days off of those staff, by id (server only: never sent). */
+  staffSchedules: Record<string, StaffSchedule>;
   /** Services the customer may add after this one in the popup (ids). */
   comboServiceIds: string[];
   /** Variant GIDs offered as add-ons in the popup's second step. */
@@ -60,7 +65,9 @@ export const bookableInclude = {
   shop: { select: { timezone: true, holdTtlMinutes: true } },
   availabilityRules: true,
   capacityOverrides: true,
-  staff: { include: { staff: { select: { id: true, name: true, active: true, sortOrder: true } } } },
+  staff: { include: { staff: {
+        select: { id: true, name: true, active: true, sortOrder: true, hours: true, daysOff: true },
+      }, } },
 } as const;
 
 type ServiceRow = Prisma.ServiceGetPayload<{ include: typeof bookableInclude }>;
@@ -85,14 +92,16 @@ export function seatLimits(service: {
 export function toBookableService(service: ServiceRow, now: Date = new Date()): BookableService {
   const timezone = resolveTimezone(service.timezone, service.shop.timezone);
   const { minSeats, maxSeats } = seatLimits(service);
-  const staff =
+  const people =
     service.staffMode === "NONE"
       ? []
       : service.staff
           .map((s) => s.staff)
           .filter((s) => s.active)
-          .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
-          .map((s) => ({ id: s.id, name: s.name }));
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+  const staff = people.map((s) => ({ id: s.id, name: s.name }));
+  const staffSchedules: Record<string, StaffSchedule> = {};
+  for (const p of people) staffSchedules[p.id] = readStaffSchedule(p.hours, p.daysOff);
   // Overrides for past dates can't matter; keep yesterday for zone edge cases.
   const fromDate = DateTime.fromJSDate(now, { zone: timezone })
     .minus({ days: 1 })
@@ -137,6 +146,7 @@ export function toBookableService(service: ServiceRow, now: Date = new Date()): 
     variantId: service.shopifyVariantId.split("/").pop() ?? "",
     staffMode: staff.length ? service.staffMode : "NONE",
     staff,
+    staffSchedules,
     comboServiceIds: stringList(service.comboServiceIds),
     upsellVariantIds: stringList(service.upsellVariantIds),
     chargePerPerson: service.chargePerPerson,
@@ -319,7 +329,28 @@ export async function staffAvailability(
 ): Promise<StaffAvailability | undefined> {
   if (service.staffMode === "NONE") return undefined;
   const ids = service.staff.map((s) => s.id).filter((id) => !only || only.includes(id));
-  return { ids, busy: await loadStaffBusy(client, ids, from, to, now) };
+  return {
+    ids,
+    busy: await loadStaffBusy(client, ids, from, to, now),
+    off: offDuty(service, ids, from, to),
+  };
+}
+
+/** Each listed staff member's time off duty around [from, to). */
+function offDuty(
+  service: BookableService,
+  ids: string[],
+  from: Date,
+  to: Date,
+): Record<string, Interval[]> {
+  const off: Record<string, Interval[]> = {};
+  const start = new Date(from.getTime() - STAFF_PAD);
+  const end = new Date(to.getTime() + STAFF_PAD);
+  for (const id of ids) {
+    const schedule = service.staffSchedules[id];
+    if (schedule) off[id] = staffOffDuty(schedule, service.geometry.timezone, start, end);
+  }
+  return off;
 }
 
 /**
@@ -412,6 +443,7 @@ export async function buildSlotParamsMany(
   ];
   const busy = await loadStaffBusy(db, staffIds, rangeStart, rangeEnd, now);
   return items.map(({ service, rangeStart: start, rangeEnd: end }) => {
+    const ids = service.staff.map((s) => s.id);
     const own = split.get(service.id) ?? { blackouts: [], usage: [] };
     return {
       service: service.geometry,
@@ -422,7 +454,7 @@ export async function buildSlotParamsMany(
       staff:
         service.staffMode === "NONE"
           ? undefined
-          : { ids: service.staff.map((s) => s.id), busy },
+          : { ids, busy, off: offDuty(service, ids, start, end) },
       rangeStart: start,
       rangeEnd: end,
       now,

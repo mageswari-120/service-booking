@@ -83,7 +83,17 @@ export interface Slot {
  */
 export interface StaffAvailability {
   ids: string[];
+  /** Holds and bookings (with buffers), per staff id. */
   busy: Record<string, Interval[]>;
+  /** Outside their own working hours, or a day off, per staff id. */
+  off?: Record<string, Interval[]>;
+}
+
+/** A staff member's own schedule; `hours` null = the service's hours. */
+export interface StaffSchedule {
+  hours: { dayOfWeek: number; startMinute: number; endMinute: number }[] | null;
+  /** "YYYY-MM-DD", local dates. */
+  daysOff: string[];
 }
 
 export interface ComputeSlotsParams {

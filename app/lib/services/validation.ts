@@ -459,6 +459,97 @@ export function parseServiceInput(input: ServiceFormInput): ParseResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Staff schedules (Staff page)
+// ---------------------------------------------------------------------------
+
+/** Working windows per day for one staff member. */
+export const MAX_STAFF_WINDOWS_PER_DAY = 3;
+/** Most days off kept per staff member. */
+export const MAX_DAYS_OFF = 366;
+
+export interface StaffScheduleInput {
+  /** null/undefined = works the service's hours. */
+  hours?: { dayOfWeek: number; start: string; end: string }[] | null;
+  daysOff?: string[];
+}
+
+export interface StaffScheduleData {
+  hours: { dayOfWeek: number; startMinute: number; endMinute: number }[] | null;
+  daysOff: string[];
+}
+
+export type StaffScheduleResult =
+  | { ok: true; data: StaffScheduleData }
+  | { ok: false; errors: Record<string, string> };
+
+/**
+ * Validates a staff member's own hours and days off. Times are "HH:MM";
+ * "00:00" as an end means midnight. Errors are keyed `hours` / `daysOff`.
+ */
+export function parseStaffSchedule(input: StaffScheduleInput): StaffScheduleResult {
+  const errors: Record<string, string> = {};
+  let hours: StaffScheduleData["hours"] = null;
+  if (input.hours) {
+    hours = [];
+    const perDay = new Map<number, number>();
+    for (const h of input.hours) {
+      const start = parseHhMm(h.start);
+      let end = parseHhMm(h.end);
+      if (end === 0) end = MINUTES_PER_DAY;
+      if (!Number.isInteger(h.dayOfWeek) || h.dayOfWeek < 0 || h.dayOfWeek > 6) {
+        errors.hours = "Choose a day of the week.";
+        break;
+      }
+      if (start === null || end === null) {
+        errors.hours = `Enter ${DAY_NAMES[h.dayOfWeek]}'s times as HH:MM.`;
+        break;
+      }
+      if (end <= start) {
+        errors.hours = `${DAY_NAMES[h.dayOfWeek]}: the end time must be after the start.`;
+        break;
+      }
+      const count = (perDay.get(h.dayOfWeek) ?? 0) + 1;
+      perDay.set(h.dayOfWeek, count);
+      if (count > MAX_STAFF_WINDOWS_PER_DAY) {
+        errors.hours = `Up to ${MAX_STAFF_WINDOWS_PER_DAY} time ranges per day.`;
+        break;
+      }
+      hours.push({ dayOfWeek: h.dayOfWeek, startMinute: start, endMinute: end });
+    }
+  }
+  const daysOff = [...new Set((input.daysOff ?? []).map((d) => d.trim()))].sort();
+  if (daysOff.length > MAX_DAYS_OFF) {
+    errors.daysOff = `Up to ${MAX_DAYS_OFF} days off.`;
+  } else if (daysOff.some((d) => !isValidDate(d))) {
+    errors.daysOff = "Enter days off as dates (YYYY-MM-DD).";
+  }
+  return Object.keys(errors).length ? { ok: false, errors } : { ok: true, data: { hours, daysOff } };
+}
+
+/**
+ * A staff row's stored `hours` / `daysOff` JSON, read defensively: anything
+ * malformed is dropped rather than trusted.
+ */
+export function readStaffSchedule(hours: unknown, daysOff: unknown): StaffScheduleData {
+  const list = Array.isArray(hours)
+    ? hours.filter(
+        (h): h is { dayOfWeek: number; startMinute: number; endMinute: number } =>
+          !!h &&
+          typeof h === "object" &&
+          Number.isInteger((h as { dayOfWeek: unknown }).dayOfWeek) &&
+          Number.isInteger((h as { startMinute: unknown }).startMinute) &&
+          Number.isInteger((h as { endMinute: unknown }).endMinute),
+      )
+    : null;
+  return {
+    hours: list,
+    daysOff: Array.isArray(daysOff)
+      ? daysOff.filter((d): d is string => typeof d === "string" && isValidDate(d))
+      : [],
+  };
+}
+
 /** Minutes from midnight => "HH:MM". 1440 renders as "00:00" (midnight close). */
 export function minutesToHhMm(minutes: number): string {
   const m = minutes % MINUTES_PER_DAY;

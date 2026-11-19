@@ -170,6 +170,11 @@ model Staff {
   name      String
   active    Boolean @default(true)
   sortOrder Int     @default(0)
+  // Own weekly hours [{dayOfWeek, startMinute, endMinute}] in the service's
+  // timezone; null = they work whenever the service is open.
+  hours     Json?
+  // Days off, "YYYY-MM-DD" (local dates).
+  daysOff   Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

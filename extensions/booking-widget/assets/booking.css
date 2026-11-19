@@ -1657,3 +1657,26 @@
   border-color: var(--sb-accent);
   color: var(--sb-on-accent);
 }
+
+/* Busy or off at the picked time: shown, not choosable. */
+.sb-staff button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+
+.sb-staff button:disabled:hover {
+  border-color: var(--sb-border);
+}
+
+.sb-staff button small {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 400;
+  line-height: 1.1;
+}
+
+/* "Staff first": under the chosen service, above the calendar. */
+.sb-staff--first {
+  margin-bottom: 0.75rem;
+}

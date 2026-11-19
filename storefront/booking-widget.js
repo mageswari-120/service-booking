@@ -490,7 +490,8 @@
     /** `pickDay`: when the popup is open, auto-select the first open day. */
     function loadMonth(month, pickDay) {
       var seq = ++state.seq;
-      var params = { variant: state.variantId };
+      // `staff`: the "staff first" pick (booking-extras.js), "" for anyone.
+      var params = { variant: state.variantId, staff: state.only || "" };
       if (month) params.month = month;
       var done = function () {
         if (seq === state.seq) state.loading = null;
@@ -542,7 +543,7 @@
         })
         .catch(function (status) {
           if (seq !== state.seq) return;
-          console.warn("[sb] availability", status);
+          console.warn("[sb]", status);
           if (shown()) setStatus(t("Error"), true);
         })
         .then(done, done);
