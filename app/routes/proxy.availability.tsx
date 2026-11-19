@@ -96,6 +96,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       variantId,
       title: s.title,
       duration: s.geometry.durationMinutes,
+      // The popup's running total: the service's price × people when priced
+      // per person (its cart line quantity is the party size then).
+      perPerson: s.chargePerPerson,
     })),
     staffMode,
     staff,

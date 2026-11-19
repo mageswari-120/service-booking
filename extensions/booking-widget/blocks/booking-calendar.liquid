@@ -1,5 +1,15 @@
 {%- comment -%}
-  Booking calendar: a "Book now" button that opens a month view of every
+  Booking calendar: a "Book now" button. Two layouts (setting "layout"):
+
+  cards ("Service cards", default) — the same popup as a service's product
+    page (snippets/booking-popup.liquid, driven by booking.js): service
+    cards → staff, calendar and times → details and add-ons → cart. It
+    starts on this product's selected service (scope "Current product" on a
+    bookable product) or the shop's service_booking.default_variant (written
+    by the app with service_count); without either it falls back to the
+    month layout.
+
+  month ("Month overview") — a month view of every
   bookable service (or only this product's), one chip per service per day.
   A chip opens that day's times; "Continue to Book" runs the same details →
   hold → cart flow as the product popup (booking-step2.js).
@@ -12,7 +22,41 @@
   endif
   assign label = block.settings.button_label | default: 'Book now'
   assign heading = block.settings.heading | default: 'Book an appointment'
+  assign sb_add_label = 'booking.add_to_cart' | t
+  if block.settings.add_label != blank
+    assign sb_add_label = block.settings.add_label | escape
+  endif
+
+  assign sb_start = ''
+  if block.settings.layout != 'month'
+    if block.settings.scope == 'product' and product
+      assign sb_own = product.selected_or_first_available_variant
+      if sb_own.metafields.service_booking.bookable == true
+        assign sb_start = sb_own.id
+      endif
+    endif
+    if sb_start == blank
+      assign sb_start = shop.metafields.service_booking.default_variant.value
+    endif
+  endif
 -%}
+{%- if sb_start != blank -%}
+  {%- assign sb_ids = sb_start | append: ',' -%}
+  <div class="sb-bcal sb-bcal--cards">
+    {%- render 'booking-popup',
+      block: block,
+      variant_id: sb_start,
+      bookable_ids: sb_ids,
+      label: label,
+      title: heading,
+      description: '',
+      add_label: block.settings.add_label,
+      variants: empty,
+      standalone: true
+    -%}
+  </div>
+  <script src="{{ 'booking.js' | asset_url }}" defer></script>
+{%- else -%}
 <div
   class="sb-booking sb-bcal"
   data-sb-cal
@@ -32,7 +76,7 @@
   data-i18n-minutes="{{ 'booking.minutes' | t: count: '__COUNT__' }}"
   data-i18n-select-time="{{ 'booking.select_time' | t }}"
   data-i18n-continue="{{ 'booking.continue_to_book' | t }}"
-  data-i18n-add-to-cart="{{ 'booking.add_to_cart' | t }}"
+  data-i18n-add-to-cart="{{ sb_add_label }}"
   data-i18n-sold-out="{{ 'booking.sold_out' | t }}"
   data-i18n-more="{{ 'booking.more' | t: count: '__COUNT__' }}"
   data-i18n-back="{{ 'booking.back' | t }}"
@@ -77,6 +121,7 @@
     <div class="sb-bcal__overlay" data-sb-pop hidden></div>
   </dialog>
 </div>
+{%- endif -%}
 
 {% schema %}
 {
@@ -87,9 +132,20 @@
   "settings": [
     {
       "type": "select",
+      "id": "layout",
+      "label": "Layout",
+      "info": "Service cards: the same popup as a service's product page — pick a service, then staff, date and time. Month overview: every service's open days on one big calendar.",
+      "options": [
+        { "value": "cards", "label": "Service cards" },
+        { "value": "month", "label": "Month overview" }
+      ],
+      "default": "cards"
+    },
+    {
+      "type": "select",
       "id": "scope",
       "label": "Services shown",
-      "info": "Current product: on a product page, only the services sold as that product. Elsewhere it falls back to all services.",
+      "info": "Current product: on a product page, Service cards starts on that product's service and Month overview shows only its services. Elsewhere it falls back to all services.",
       "options": [
         { "value": "all", "label": "All services" },
         { "value": "product", "label": "Current product" }
@@ -101,6 +157,12 @@
       "id": "button_label",
       "label": "Button label",
       "default": "Book now"
+    },
+    {
+      "type": "text",
+      "id": "add_label",
+      "label": "Add to cart button label",
+      "info": "The popup's last button. Leave empty for \"Add to cart\" (translated)."
     },
     {
       "type": "text",

@@ -566,6 +566,36 @@
   border-top: 1px solid var(--sb-border);
 }
 
+/* Step 2's running total, above the button (booking-step2.js). Hidden with
+   the button when back on step 1. */
+.sb-total {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.sb-total[hidden],
+.sb-modal__foot:has(.sb-add[hidden]) .sb-total {
+  display: none;
+}
+
+.sb-total__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  font-weight: 600;
+}
+
+.sb-total__amount {
+  font-size: 1.15rem;
+}
+
+.sb-total__breakdown,
+.sb-total__note {
+  color: var(--sb-muted);
+  font-size: 0.8rem;
+}
+
 .sb-modal__status {
   margin: 0;
   font-size: 0.9rem;
@@ -576,6 +606,10 @@
 }
 
 .sb-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
   width: 100%;
   min-height: 3.25rem;
   border: 0;
@@ -586,11 +620,68 @@
   font-size: 1.05rem;
   font-weight: 600;
   cursor: pointer;
+  transition: filter 0.15s, transform 0.05s;
+}
+
+.sb-add[hidden] {
+  display: none;
+}
+
+.sb-add:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.sb-add:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.sb-add:focus-visible {
+  outline: 2px solid var(--sb-accent);
+  outline-offset: 3px;
 }
 
 .sb-add:disabled {
-  opacity: 0.5;
   cursor: progress;
+}
+
+.sb-add:disabled:not([aria-busy="true"]) {
+  opacity: 0.85;
+}
+
+/* Holding the time and adding to the cart: the label stays, a ring spins
+   beside it (booking-step2.js sets aria-busy). */
+.sb-add[aria-busy="true"]::before {
+  content: "";
+  flex: none;
+  width: 1.1em;
+  height: 1.1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: sb-spin 0.7s linear infinite;
+}
+
+@keyframes sb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-add[aria-busy="true"]::before {
+    animation-duration: 1.6s;
+  }
+}
+
+/* The "Adding to cart…" status is for screen readers only while the
+   button shows its spinner. */
+.sb-modal__foot:has(.sb-add[aria-busy="true"]) .sb-modal__status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 /* --- Step 2: details --------------------------------------------------- */
@@ -623,11 +714,42 @@
   color: var(--sb-muted);
 }
 
-.sb-pick {
-  padding: 1rem 1.1rem;
-  border: 1px solid var(--sb-border);
-  border-radius: 0.5rem;
-  font-weight: 600;
+/* Step 2's "‹ Back | Selected time" bar: stuck to the top of the scrolling
+   details, flush under the popup header (the negative margins undo
+   .sb-details' padding). */
+.sb-when {
+  position: sticky;
+  top: -1.25rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: -1.25rem -1.5rem 0;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--sb-border);
+  background: var(--sb-bg);
+}
+
+.sb-when .sb-back {
+  flex: none;
+  align-self: stretch;
+  padding-right: 1rem;
+  border-right: 1px solid var(--sb-border);
+}
+
+.sb-when__text {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.sb-when .sb-eyebrow {
+  margin: 0;
+  font-size: 0.7rem;
+}
+
+.sb-when strong {
+  font-size: 1rem;
 }
 
 .sb-field {
@@ -1017,6 +1139,11 @@
   .sb-details {
     flex: 1;
   }
+
+  .sb-when {
+    margin: -1.25rem -1rem 0;
+    padding: 0.6rem 1rem;
+  }
 }
 
 /* --- Booking calendar block (booking-calendar.js) ------------------------ */
@@ -1025,7 +1152,8 @@
    (--sb-c, set per chip). A chip opens a centred time card over the month.
    Below ~640px the grid becomes an agenda list of the days with services. */
 
-.sb-bcal .sb-bcal__open {
+.sb-bcal .sb-bcal__open,
+.sb-bcal--cards .sb-trigger {
   width: auto;
 }
 
@@ -1293,6 +1421,13 @@
 .sb-bcal__details {
   padding: 0;
   overflow: visible;
+}
+
+/* No padding to undo here: the bar sits in the time card's own flow. */
+.sb-bcal__details .sb-when {
+  top: 0;
+  margin: 0;
+  padding: 0.6rem 0;
 }
 
 .sb-bcal__actions {

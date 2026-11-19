@@ -261,25 +261,65 @@ const SHOP_ID_QUERY = `#graphql
   query ServiceBookingShopId { shop { id } }
 `;
 
+const SELLABLE_QUERY = `#graphql
+  query ServiceBookingSellable($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on ProductVariant { id product { status publishedAt } }
+    }
+  }
+`;
+
 /**
- * How many active services the shop has, on the shop's
- * service_booking.service_count metafield. The theme block reads it in
- * Liquid: with more than one, the booking popup opens on the service cards,
- * so it renders their skeleton (not the calendar's) while loading.
+ * Two shop metafields the theme blocks read in Liquid:
  *
- * Best effort: a stale count only changes which skeleton shows first.
+ *   service_booking.service_count — how many active services the shop has.
+ *     With more than one, the booking popup opens on the service cards, so
+ *     it renders their skeleton (not the calendar's) while loading.
+ *   service_booking.default_variant — the service the "Booking calendar"
+ *     block's popup starts on (its first /availability call needs one; the
+ *     cards switch from there): the first active service by title whose
+ *     product is on the Online Store, else simply the first.
+ *
+ * Best effort: a stale count only changes which skeleton shows first; a
+ * stale default is still switchable from the cards.
  */
 export async function syncServiceCount(admin: AdminApiContext, shopId: string): Promise<void> {
   try {
-    const [count, res] = await Promise.all([
-      db.service.count({ where: { shopId, active: true } }),
+    const [rows, res] = await Promise.all([
+      db.service.findMany({
+        where: { shopId, active: true },
+        select: { shopifyVariantId: true },
+        orderBy: [{ title: "asc" }, { id: "asc" }],
+        take: 50,
+      }),
       admin.graphql(SHOP_ID_QUERY),
     ]);
     const body = (await res.json()) as { data?: { shop?: { id?: string } } };
     const shopGid = body.data?.shop?.id;
     if (!shopGid) return;
-    const error = await setMetafield(admin, shopGid, "service_count", "number_integer", String(count));
+    const error = await setMetafield(admin, shopGid, "service_count", "number_integer", String(rows.length));
     if (error) console.error(`[services] service_count metafield not set: ${error}`);
+
+    let first = rows[0]?.shopifyVariantId ?? null;
+    if (rows.length > 1) {
+      try {
+        const sell = await admin.graphql(SELLABLE_QUERY, {
+          variables: { ids: rows.map((r) => r.shopifyVariantId) },
+        });
+        const sb = (await sell.json()) as {
+          data?: { nodes?: ({ id?: string; product?: { status?: string; publishedAt?: string | null } } | null)[] };
+        };
+        const ok = (sb.data?.nodes ?? []).find((n) => n?.id && n.product?.status === "ACTIVE" && n.product.publishedAt);
+        if (ok?.id) first = ok.id;
+      } catch {
+        // Keep the first by title.
+      }
+    }
+    const variant = first ? first.split("/").pop() ?? "" : "";
+    const defaultError = variant
+      ? await setMetafield(admin, shopGid, "default_variant", "single_line_text_field", variant)
+      : await deleteMetafield(admin, shopGid, "default_variant");
+    if (defaultError) console.error(`[services] default_variant metafield not set: ${defaultError}`);
   } catch (error) {
     console.error("[services] service_count metafield sync failed", error);
   }

@@ -58,6 +58,9 @@
     "choose_staff": "Choose staff",
     "any_staff": "Any available",
     "staff": "Staff",
-    "unavailable": "Unavailable"
+    "unavailable": "Unavailable",
+    "total": "Total",
+    "total_note": "Taxes and discounts calculated at checkout",
+    "add_ons": "Add-ons"
   }
 }

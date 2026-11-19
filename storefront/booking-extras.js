@@ -8,7 +8,9 @@
  *     the one being booked checked; calendar and times hidden meanwhile.
  *     Tapping a card goes on to the calendar, with a summary row and
  *     "Change" above it; another service's card calls change(), which loads
- *     that service instead. Every open starts on the cards. Run by booking.js
+ *     that service instead. The "Booking calendar" block's popup
+ *     (data-standalone) opens on the cards; a service's product page opens
+ *     on the summary, its service already chosen. Run by booking.js
  *     after every month load. ctx: { root, state, el, t, api, setStatus,
  *     change(variantId) }.
  *
@@ -42,6 +44,37 @@
     }
   }
 
+  /** /services, fetched once per page (cards, and the popup's total). */
+  function loadCards(ctx) {
+    if (!cardData) {
+      cardData = ctx.api("/services").then(
+        function (res) { return res.status === 200 ? res.data : null; },
+        function () { return null; },
+      );
+    }
+    return cardData;
+  }
+
+  /**
+   * The service being booked: its price (cents, null when unknown), the
+   * shop's currency and whether it's charged per person — for step 2's
+   * running total (booking-step2.js).
+   */
+  window.__sbPrice = function (ctx) {
+    var id = ctx.state.variantId;
+    var mine = (ctx.state.services || []).filter(function (s) { return s.variantId === id; })[0] || {};
+    return loadCards(ctx).then(function (data) {
+      var card = (data && data.services || []).filter(function (s) { return s.variantId === id; })[0] || {};
+      return {
+        price: card.price == null ? null : card.price,
+        currency: data && data.currency,
+        title: mine.title || card.title || "",
+        perPerson: !!mine.perPerson,
+      };
+    });
+  };
+  window.__sbMoney = money;
+
   window.__sbServices = function (ctx) {
     var state = ctx.state;
     var root = ctx.root;
@@ -61,22 +94,19 @@
 
     if (!box.__sbInit) {
       box.__sbInit = true;
-      // Every open starts on the cards.
-      box.__sbStep = "pick";
+      // Every open starts on the cards in the "Book now" popup; on a
+      // service's product page the service is already chosen, so on the
+      // summary (staff, calendar, times), the cards a "Change" away.
+      var first = "standalone" in root.dataset ? "pick" : "chosen";
+      box.__sbStep = first;
       var dialog = root.querySelector("[data-sb-dialog]");
       if (dialog) {
         dialog.addEventListener("close", function () {
-          box.__sbStep = "pick";
+          box.__sbStep = first;
           draw(ctx, box);
         });
       }
-      if (!cardData) {
-        cardData = ctx.api("/services").then(
-          function (res) { return res.status === 200 ? res.data : null; },
-          function () { return null; },
-        );
-      }
-      cardData.then(function (data) {
+      loadCards(ctx).then(function (data) {
         box.__sbData = data;
         draw(ctx, box);
       });

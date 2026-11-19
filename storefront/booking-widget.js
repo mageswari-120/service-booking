@@ -23,6 +23,7 @@
 
   var HOUR_PREF = "sb-hour-cycle";
   var step2Loading = null; // one <script> per page, shared by every block
+  var locale = document.documentElement.lang || undefined;
 
   function init(root) {
     if (root.__sb) return;
@@ -43,8 +44,9 @@
     var triggerBtn = $("[data-sb-open]");
     // Variants the app flagged as services (Liquid metafield), known at render.
     var flagged = (root.dataset.bookableVariants || "").split(",");
-    var locale = document.documentElement.lang || undefined;
-    var form = findProductForm(root);
+    // `data-standalone` (the "Booking calendar" block's popup): no product
+    // form to take over — its own button opens the popup.
+    var form = !("standalone" in root.dataset) && findProductForm(root);
     var section = (form && form.closest(".shopify-section")) || root.closest(".shopify-section");
 
     // Fields left out start undefined (falsy), which every check below treats
@@ -609,7 +611,7 @@
       var saved = localStorage.getItem(HOUR_PREF);
       if (saved) return saved === "24";
     } catch (e) {}
-    var cycle = new Intl.DateTimeFormat(document.documentElement.lang || undefined, { hour: "numeric" })
+    var cycle = new Intl.DateTimeFormat(locale, { hour: "numeric" })
       .resolvedOptions().hourCycle;
     return cycle === "h23" || cycle === "h24";
   }

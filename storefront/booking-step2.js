@@ -3,8 +3,9 @@
  * `npm run build:widget`. Loaded on demand by booking.js (its own 10 KB budget).
  *
  * The booking popup's second step, shown after the customer picks a time:
- * the time range, how many people, the service's questions, an optional
- * signature, add-on products, and "Add to cart" — which holds the seats
+ * the time range, the staff choice, how many people, the service's
+ * questions, add-on products, an optional signature (last, right above the
+ * button), and "Add to cart" — which holds the seats
  * (POST /apps/booking/hold, with the details) and then adds the booking and
  * any add-ons to the cart in one /cart/add.js call. Add-ons go in as nested
  * cart lines under the booking (`parent_id`), flat if Shopify refuses that.
@@ -13,7 +14,7 @@
  *
  * Also used by booking-addon.js (the "On the page" add-on card) with:
  *   ctx.compact     — no back button or time summary (the card shows its own);
- *                     people / questions / signature / add-ons as usual
+ *                     staff / people / questions / add-ons / signature as usual
  *   ctx.upsells     — the block's <template data-sb-upsells> (add-on products)
  *   ctx.addBtn      — may be null: the caller runs the returned submit()
  *   ctx.extraItems  — () => the product line the service is an add-on to; the
@@ -88,6 +89,7 @@ import "./booking-extras.js";
         var n = Math.min(maxN, Math.max(min, get() + d));
         set(n);
         out.textContent = String(n);
+        recalc(); // people or an add-on's quantity: the total moves
         dec.disabled = n <= min;
         inc.disabled = n >= maxN;
       }
@@ -102,18 +104,27 @@ import "./booking-extras.js";
     var end = new Date(new Date(slot.start).getTime() + state.duration * 60000).toISOString();
     var btn = ctx.addBtn;
     var parts = ctx.compact ? [] : [
-      el("button", { type: "button", class: "sb-back", text: "‹ " + t("Back"), onclick: ctx.back }),
-      el("p", { class: "sb-eyebrow", text: t("SelectedTime") }),
-      el("div", { class: "sb-pick" }, [
-        el("span", {
-          text: t("FromTo", {
-            date: ctx.fmt(slot.start, { dateStyle: "long" }),
-            start: ctx.formatTime(slot.start),
-            end: ctx.formatTime(end),
+      // Back + the chosen time in one bar that stays at the top while the
+      // form scrolls (sticky, booking.css .sb-when).
+      el("div", { class: "sb-when" }, [
+        el("button", { type: "button", class: "sb-back", text: "‹ " + t("Back"), onclick: ctx.back }),
+        el("div", { class: "sb-when__text" }, [
+          el("span", { class: "sb-eyebrow", text: t("SelectedTime") }),
+          el("strong", {
+            text: t("FromTo", {
+              date: ctx.fmt(slot.start, { dateStyle: "long" }),
+              start: ctx.formatTime(slot.start),
+              end: ctx.formatTime(end),
+            }),
           }),
-        }),
+        ]),
       ]),
     ];
+
+    // --- Staff (booking-extras.js; absent or null: no staff step) ------------
+    // Right under the time: who and when go together.
+    var staffPick = window.__sbStaff ? window.__sbStaff(ctx) : null;
+    if (staffPick) parts.push(staffPick.node);
 
     // --- People --------------------------------------------------------------
     if (max > 1) {
@@ -142,20 +153,17 @@ import "./booking-extras.js";
       }
     });
 
-    // --- Signature -----------------------------------------------------------
+    // --- Signature (built here, placed last: the final step before the button)
+    var sigNode = null;
     if (state.signature) {
       var canvas = el("canvas", { class: "sb-sign__pad", "aria-label": t("Signature") });
       pad = signaturePad(canvas);
-      parts.push(field("signature", labelFor(t("Signature"), true), t("SignatureHelp"),
+      sigNode = field("signature", labelFor(t("Signature"), true), t("SignatureHelp"),
         el("div", { class: "sb-sign" }, [
           canvas,
           el("button", { type: "button", class: "sb-sign__clear", text: t("ClearSignature"), onclick: function () { pad.clear(); } }),
-        ]), canvas));
+        ]), canvas);
     }
-
-    // --- Staff (booking-extras.js; absent or null: no staff step) ------------
-    var staffPick = window.__sbStaff ? window.__sbStaff(ctx) : null;
-    if (staffPick) parts.push(staffPick.node);
 
     // --- Add-ons (rendered by the block in Liquid, or fetched) ---------------
     var addons = [];
@@ -172,10 +180,14 @@ import "./booking-extras.js";
       window.__sbRemoteUpsells(ctx, function (fetched) {
         if (ctx.detailsEl.__sbRender !== mine) return; // step 2 was redrawn since
         addRows(fetched);
-        ctx.detailsEl.appendChild(addTitle);
-        ctx.detailsEl.appendChild(list);
+        // Above the signature, which stays last (null: append).
+        var before = sigNode && sigNode.parentNode === ctx.detailsEl ? sigNode : null;
+        ctx.detailsEl.insertBefore(addTitle, before);
+        ctx.detailsEl.insertBefore(list, before);
+        recalc();
       });
     }
+    if (sigNode) parts.push(sigNode);
 
     function addRows(rows) {
       Array.prototype.forEach.call(rows, function (tpl) {
@@ -190,6 +202,7 @@ import "./booking-extras.js";
             item.on = !item.on;
             toggle.setAttribute("aria-pressed", String(item.on));
             toggle.textContent = item.on ? t("Added") : t("Add");
+            recalc();
           },
         });
         row.appendChild(el("div", { class: "sb-upsell__buy" }, [
@@ -211,6 +224,43 @@ import "./booking-extras.js";
       btn.onclick = submit;
     }
 
+    // --- Running total (the popup only) --------------------------------------
+    // Service price × people (when priced per person) + ticked add-ons ×
+    // their quantity, before discounts and taxes (the cart applies those).
+    // Hidden until the price is known — and for good when it isn't
+    // (/services without Shopify). Hidden with the button on step 1 (CSS).
+    var priced = null; // { price, currency, title, perPerson }
+    var totalEl = null;
+    if (btn && !ctx.compact && ctx.root.hasAttribute("data-sb-booking") && window.__sbPrice) {
+      var old = btn.parentNode.querySelector(".sb-total");
+      if (old) old.remove();
+      var amountEl = el("strong", { class: "sb-total__amount" });
+      var breakdownEl = el("small", { class: "sb-total__breakdown" });
+      totalEl = el("div", { class: "sb-total", hidden: "" }, [
+        el("div", { class: "sb-total__row" }, [el("span", { text: t("Total") || "Total" }), amountEl]),
+        breakdownEl,
+        t("TotalNote") ? el("small", { class: "sb-total__note", text: t("TotalNote") }) : null,
+      ]);
+      btn.parentNode.insertBefore(totalEl, btn);
+      window.__sbPrice(ctx).then(function (p) {
+        if (ctx.detailsEl.__sbRender !== mine || p.price == null) return;
+        priced = p;
+        totalEl.hidden = false;
+        recalc();
+      });
+    }
+
+    function recalc() {
+      if (!priced || !totalEl) return;
+      var cash = function (cents) { return window.__sbMoney(t, cents, priced.currency); };
+      var units = priced.perPerson ? seats : 1;
+      var extras = addons.reduce(function (sum, a) { return sum + (a.on ? a.price * a.qty : 0); }, 0);
+      amountEl.textContent = cash(priced.price * units + extras);
+      var bits = [priced.title + " " + cash(priced.price) + (units > 1 ? " × " + units : "")];
+      if (extras) bits.push((t("AddOns") || "Add-ons") + " " + cash(extras));
+      breakdownEl.textContent = bits.join(" · ");
+    }
+
     // --- Submit --------------------------------------------------------------
     function showError(id, text) {
       var f = fields[id];
@@ -225,6 +275,8 @@ import "./booking-extras.js";
       Object.keys(fields).forEach(function (id) {
         fields[id].error.textContent = "";
       });
+      // Checked in the order shown: staff first, the signature last.
+      if (staffPick && !staffPick.check(t("Required"))) return null;
       state.questions.forEach(function (q) {
         var input = fields[q.id].input;
         var value = q.type === "checkbox" ? input.checked : input.value.trim();
@@ -236,7 +288,6 @@ import "./booking-extras.js";
         showError(firstBad, t("Required"));
         return null;
       }
-      if (staffPick && !staffPick.check(t("Required"))) return null;
       return answers;
     }
 
@@ -246,14 +297,15 @@ import "./booking-extras.js";
       if (!answers) return;
       busy = true;
       if (btn) {
+        // The label stays; a spinner shows instead (booking.css aria-busy).
         btn.disabled = true;
-        var label = btn.textContent;
-        btn.textContent = t("Adding") || label;
+        btn.setAttribute("aria-busy", "true");
       }
-      // No button of ours (add-on card: the theme's button submits): say so in
-      // the status line at once — the hold and the cart add take a moment.
+      // "Adding to cart…" in the status line at once — the hold and the cart
+      // add take a moment. Next to our own button it's for screen readers
+      // only (visually hidden while the button is busy, booking.css).
       var failed = false;
-      ctx.setStatus(btn ? "" : t("Adding"));
+      ctx.setStatus(t("Adding"));
       return ctx.api("/hold", null, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -287,10 +339,10 @@ import "./booking-extras.js";
         })
         .then(function () {
           busy = false;
-          if (!btn && !failed) ctx.setStatus("");
+          if (!failed) ctx.setStatus("");
           if (btn) {
             btn.disabled = false;
-            btn.textContent = label;
+            btn.removeAttribute("aria-busy");
           }
         });
     }
