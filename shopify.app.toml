@@ -1,18 +1,25 @@
 # Shopify app configuration for Service Booking.
 #
-# Identity fields (client_id, application_url, auth.redirect_urls) are managed
-# by the CLI: `shopify app dev` rewrites the URLs to the tunnel on every run.
-# `shopify app deploy` does NOT — it pushes whatever is written here. Deploy to
-# production from a separate shopify.app.production.toml whose application_url,
-# redirect_urls and [app_proxy].url point at the real HTTPS host. Everything below them — scopes, the app proxy and the
-# webhook list — is ours to maintain.
+# URLs point at the deployed Render host, and
+# automatically_update_urls_on_dev is false so `shopify app dev` cannot
+# overwrite them with a tunnel that dies when the terminal closes.
+#
+# `shopify app deploy` pushes whatever is written here. To develop locally,
+# run `shopify app dev` and let it use a tunnel for that session only; when it
+# asks to update the app's URLs, answer no, or deploy this file again
+# afterwards to put the Render URLs back.
+#
+# NOTE: shopify.app.production.toml carries the same client_id and the same
+# URLs, so it is now redundant — both configs are the same app, and whichever
+# is deployed last wins. A separate dev app with its own client_id is the
+# proper fix if local dev and the installed app ever need to coexist.
 #
 # Never answer "yes" when `config link` offers to replace this file with the
 # remote config: the remote copy of a new app is empty and wipes the scopes.
 
 client_id = "bb2a5e647aa050c1e2059f6fe8bc367d"
 name = "service-booking"
-application_url = "https://example.com"
+application_url = "https://service-booking-aqk7.onrender.com"
 embedded = true
 
 [access_scopes]
@@ -32,13 +39,18 @@ embedded = true
 scopes = "read_products,write_products,read_orders,write_app_proxy,read_publications,write_publications"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [
+  "https://service-booking-aqk7.onrender.com/auth/callback",
+  "https://service-booking-aqk7.onrender.com/auth/shopify/callback",
+  "https://service-booking-aqk7.onrender.com/api/auth/callback",
+  "https://service-booking-aqk7.onrender.com/api/auth"
+]
 
 [app_proxy]
 # Storefront-visible path is <shop>/apps/booking/*, which the theme app
 # extension fetches for availability. The CLI rewrites `url` to the tunnel
 # during `shopify app dev` only; set the production host in the production toml.
-url = "https://example.com/proxy"
+url = "https://service-booking-aqk7.onrender.com/proxy"
 subpath = "booking"
 prefix = "apps"
 
@@ -93,4 +105,4 @@ api_version = "2026-10"
   compliance_topics = [ "shop/redact" ]
 
 [build]
-automatically_update_urls_on_dev = true
+automatically_update_urls_on_dev = false
