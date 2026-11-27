@@ -64,6 +64,7 @@
     //   staff ([{ id, name }]), staffMode
     //   loading     — the /availability request in flight, if any
     //   wantDay     — popup opened before data came: pick a day on arrival
+    //   pending     — ‹ › moved to a month whose dates haven't arrived yet
     var state = {
       // The service being booked; the "Service" switcher can move it off
       // the theme form's variant (formId), which the poll below follows.
@@ -328,6 +329,7 @@
       taken: function () {
         state.pick = null;
         showStep1();
+        delete cache[monthKey(state.month)]; // that slot is gone: don't show it again
         loadMonth(state.month).then(function () {
           setStatus(t("Taken"), true);
         });
@@ -412,7 +414,7 @@
         navBtn(t("NextMonth"), "›", 1, state.month >= state.lastMonth),
       ]));
       calEl.appendChild(grid);
-      if (!state.days.length) calEl.appendChild(el("p", { class: "sb-muted", text: t("NoDates") }));
+      if (!state.days.length && !state.pending) calEl.appendChild(el("p", { class: "sb-muted", text: t("NoDates") }));
     }
 
     /** The weekday header row of a month grid. */
@@ -498,18 +500,65 @@
     // Data
     // ---------------------------------------------------------------------
 
-    /** `pickDay`: when the popup is open, auto-select the first open day. */
+    // Answered months, by service | staff | month: ‹ › draw at once.
+    var cache = {};
+    var inflight = {};
+    function monthKey(month) {
+      return state.variantId + "|" + (state.only || "") + "|" + (month || "");
+    }
+
+    /**
+     * One /availability request per month, shared by everyone asking at once
+     * (a click on › while that month is being prefetched waits for it).
+     */
+    function fetchMonth(month) {
+      var who = monthKey("");
+      var key = who + (month || "");
+      if (!inflight[key]) {
+        // `staff`: the "staff first" pick (booking-extras.js), "" for anyone.
+        var params = { variant: state.variantId, staff: state.only || "" };
+        if (month) params.month = month;
+        // Days in the visitor's timezone, like the times on them.
+        if (viewerTz) params.tz = viewerTz;
+        var settle = function () {
+          delete inflight[key];
+        };
+        inflight[key] = api("/availability", params).then(function (res) {
+          settle();
+          if (res.status === 200 && res.data.bookable) cache[who + res.data.month] = res.data;
+          return res;
+        }, function (e) {
+          settle();
+          throw e;
+        });
+      }
+      return inflight[key];
+    }
+
+    /**
+     * Show a month: at once from the cache (then refreshed quietly), else its
+     * title and a "Loading" grid straight away — `state.month` moves now, so
+     * › › › counts on from the month shown and the last click wins. While
+     * the popup is open the next month is prefetched, so › is instant.
+     * `pickDay`: when the popup is open, auto-select the first open day.
+     */
     function loadMonth(month, pickDay) {
       var seq = ++state.seq;
-      // `staff`: the "staff first" pick (booking-extras.js), "" for anyone.
-      var params = { variant: state.variantId, staff: state.only || "" };
-      if (month) params.month = month;
-      // Days in the visitor's timezone, like the times on them.
-      if (viewerTz) params.tz = viewerTz;
+      var hit = month && cache[monthKey(month)];
+      if (hit) applyMonth(hit, pickDay);
+      else if (month && state.month && month !== state.month) {
+        state.month = month;
+        state.days = [];
+        state.date = state.slots = null;
+        state.pending = true;
+        renderCalendar();
+        renderTimes();
+        setStatus(t("Loading"));
+      }
       var done = function () {
-        if (seq === state.seq) state.loading = null;
+        if (seq === state.seq) state.loading = state.pending = null;
       };
-      state.loading = api("/availability", params)
+      state.loading = fetchMonth(month)
         .then(function (res) {
           if (seq !== state.seq) return;
           // Only the app's explicit "not a service" answer backs out. A tunnel
@@ -521,46 +570,55 @@
           }
           if (res.status !== 200 || !res.data.bookable) throw res.status;
           var d = res.data;
-          state.timezone = d.timezone;
-          state.month = d.month;
-          state.firstMonth = d.firstMonth;
-          state.lastMonth = d.lastMonth;
-          state.days = d.days;
-          state.byDay = d.slots || {};
-          state.capacity = d.capacity || 1;
-          state.mode = d.mode || "people";
-          state.minSeats = d.minSeats || 1;
-          state.maxSeats = d.maxSeats || null;
-          state.duration = d.duration || 0;
-          state.questions = d.questions || [];
-          state.signature = !!d.signature;
-          state.services = d.services;
-          state.staff = d.staff;
-          state.staffMode = d.staffMode;
-          // The "Service" switcher (booking-extras.js), when there's a choice —
-          // or to undo booking.liquid's card skeleton if its count was stale.
-          if (d.services[1] || /step-service/.test(step1El.className)) {
-            loadStep2().then(function () {
-              window.__sbServices(ctx);
-            });
-          }
-          applyBookable(true);
-          $("[data-sb-zone]").textContent = t("Timezone", { zone: viewerTz || d.timezone });
-          if (state.date && state.date.slice(0, 7) !== d.month) state.date = null;
-          if ((pickDay || state.wantDay) && !state.date && d.days.length) state.date = d.days[0];
-          state.wantDay = false;
-          renderCalendar();
-          if (state.date) return loadSlots();
-          renderTimes();
-          if (step1El.hidden === false) setStatus("");
+          var next = shiftMonth(d.month, 1);
+          if (shown() && next <= d.lastMonth && !cache[monthKey(next)]) fetchMonth(next).catch(function () {});
+          // Slots change: redraw a cached month only when they did.
+          if (!hit || JSON.stringify(hit) !== JSON.stringify(d)) return applyMonth(d, pickDay);
         })
         .catch(function (status) {
           if (seq !== state.seq) return;
           console.warn("[sb]", status);
-          if (shown()) setStatus(t("Error"), true);
+          if (shown() && !hit) setStatus(t("Error"), true);
         })
         .then(done, done);
       return state.loading;
+    }
+
+    /** Draw an /availability answer (fresh or cached). */
+    function applyMonth(d, pickDay) {
+      state.pending = null;
+      state.timezone = d.timezone;
+      state.month = d.month;
+      state.firstMonth = d.firstMonth;
+      state.lastMonth = d.lastMonth;
+      state.days = d.days;
+      state.byDay = d.slots || {};
+      state.capacity = d.capacity || 1;
+      state.mode = d.mode || "people";
+      state.minSeats = d.minSeats || 1;
+      state.maxSeats = d.maxSeats || null;
+      state.duration = d.duration || 0;
+      state.questions = d.questions || [];
+      state.signature = !!d.signature;
+      state.services = d.services;
+      state.staff = d.staff;
+      state.staffMode = d.staffMode;
+      // The "Service" switcher (booking-extras.js), when there's a choice —
+      // or to undo booking.liquid's card skeleton if its count was stale.
+      if (d.services[1] || /step-service/.test(step1El.className)) {
+        loadStep2().then(function () {
+          window.__sbServices(ctx);
+        });
+      }
+      applyBookable(true);
+      $("[data-sb-zone]").textContent = t("Timezone", { zone: viewerTz || d.timezone });
+      if (state.date && state.date.slice(0, 7) !== d.month) state.date = null;
+      if ((pickDay || state.wantDay) && !state.date && d.days.length) state.date = d.days[0];
+      state.wantDay = false;
+      renderCalendar();
+      if (state.date) return loadSlots();
+      renderTimes();
+      if (step1El.hidden === false) setStatus("");
     }
 
     function selectDate(date) {
@@ -595,7 +653,7 @@
     /** Forget everything loaded for the previous service. */
     function reset(id) {
       state.variantId = id;
-      state.date = state.month = state.slots = state.pick = state.loading = null;
+      state.date = state.month = state.slots = state.pick = state.loading = state.pending = null;
       state.wantDay = false;
       state.seq++;
       calEl.textContent = "";
