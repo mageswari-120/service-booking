@@ -4,7 +4,8 @@
  *
  * The storefront widget (storefront/booking-step2.js) adds each booking to the
  * cart with these line item properties: `_booking_hold` (signed hold token),
- * `_booking_start` (ISO start) and `_booking_seats`.
+ * `_booking_start` (ISO start), `_booking_seats` and `_booking_tz` (the
+ * customer's browser timezone).
  */
 
 export interface OrderPayload {
@@ -39,6 +40,8 @@ export interface BookingLine {
    * the hold's own staff wins, since line properties can be edited.
    */
   staffId: string | null;
+  /** `_booking_tz`: the customer's IANA timezone, when valid. */
+  timezone: string | null;
 }
 
 export interface OrderCustomer {
@@ -69,9 +72,21 @@ export function bookingLines(order: OrderPayload): BookingLine[] {
       start: start && !Number.isNaN(start.getTime()) ? start : null,
       seats: Number.isInteger(seats) && seats > 0 ? seats : 1,
       staffId: props._booking_staff?.trim() || null,
+      timezone: validZone(props._booking_tz),
     });
   }
   return out;
+}
+
+function validZone(raw: string | undefined): string | null {
+  const zone = raw?.trim();
+  if (!zone || zone.length > 64) return null;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: zone });
+    return zone;
+  } catch {
+    return null;
+  }
 }
 
 export function orderCustomer(order: OrderPayload): OrderCustomer {

@@ -11,7 +11,11 @@ import { NOT_BOOKABLE, proxyJson, proxyShop } from "../lib/booking/proxy.server"
 import { chainMinutes } from "../lib/slots/engine";
 
 /**
- * GET /apps/booking/availability?variant=<id>&month=YYYY-MM[&with=<id>,<id>][&staff=<id>]
+ * GET /apps/booking/availability?variant=<id>&month=YYYY-MM[&with=<id>,<id>][&staff=<id>][&tz=<IANA zone>]
+ *
+ * `tz` (the visitor's timezone): `month`, `days` and the day keys of `slots`
+ * are in it, so times past the visitor's midnight sit on their next day.
+ * Without it (or when invalid) they are in the service's timezone.
  *
  * Which days of a month have at least one open slot, plus those slots grouped
  * by day — computing the days already produces them, and shipping them lets
@@ -56,7 +60,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // struck through; `days` lists only the days that can still be booked.
   // The shop's services (the popup's "Service" switcher) load alongside.
   const [{ month, firstMonth, lastMonth, days, slots }, all] = await Promise.all([
-    monthComboSlots(narrow(service), chain.map(narrow), url.searchParams.get("month")),
+    monthComboSlots(
+      narrow(service),
+      chain.map(narrow),
+      url.searchParams.get("month"),
+      new Date(),
+      // The visitor's timezone: days and months are theirs (see viewZone).
+      url.searchParams.get("tz"),
+    ),
     loadBookableServices(shop!),
   ]);
   const tEnd = performance.now();

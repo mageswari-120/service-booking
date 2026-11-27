@@ -121,8 +121,17 @@
       return node;
     }
 
+    /** The visitor's own timezone: every time is shown where they are. */
+    var viewerTz = (function () {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+      } catch (e) {
+        return null;
+      }
+    })();
+
     function fmt(iso, opts) {
-      return new Intl.DateTimeFormat(locale, Object.assign({ timeZone: state.timezone }, opts)).format(
+      return new Intl.DateTimeFormat(locale, Object.assign({ timeZone: viewerTz || state.timezone }, opts)).format(
         new Date(iso),
       );
     }
@@ -495,6 +504,8 @@
       // `staff`: the "staff first" pick (booking-extras.js), "" for anyone.
       var params = { variant: state.variantId, staff: state.only || "" };
       if (month) params.month = month;
+      // Days in the visitor's timezone, like the times on them.
+      if (viewerTz) params.tz = viewerTz;
       var done = function () {
         if (seq === state.seq) state.loading = null;
       };
@@ -534,7 +545,7 @@
             });
           }
           applyBookable(true);
-          $("[data-sb-zone]").textContent = t("Timezone", { zone: d.timezone });
+          $("[data-sb-zone]").textContent = t("Timezone", { zone: viewerTz || d.timezone });
           if (state.date && state.date.slice(0, 7) !== d.month) state.date = null;
           if ((pickDay || state.wantDay) && !state.date && d.days.length) state.date = d.days[0];
           state.wantDay = false;

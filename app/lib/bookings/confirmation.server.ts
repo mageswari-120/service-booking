@@ -64,7 +64,8 @@ export async function sendBookingConfirmation(
     serviceTitle: booking.service.title,
     startsAt: booking.startsAt,
     endsAt: booking.endsAt,
-    timezone: resolveTimezone(booking.service.timezone, booking.shop.timezone),
+    // The customer's own zone when the storefront sent it, else the service's.
+    timezone: booking.customerTimezone ?? resolveTimezone(booking.service.timezone, booking.shop.timezone),
     seats: booking.seats,
     staffName: booking.staff?.name ?? null,
     orderName: booking.shopifyOrderName,

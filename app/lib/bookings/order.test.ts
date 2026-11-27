@@ -28,6 +28,7 @@ describe("bookingLines", () => {
         start: new Date("2026-11-13T14:00:00.000Z"),
         seats: 3,
         staffId: "staff_1",
+        timezone: null,
       },
     ]);
   });
@@ -37,6 +38,17 @@ describe("bookingLines", () => {
       line_items: [{ id: 3, properties: [{ name: "_booking_hold", value: "x.y" }] }],
     });
     expect(line.staffId).toBeNull();
+  });
+
+  it("keeps a valid customer timezone and drops a bad one", () => {
+    const [good, bad] = bookingLines({
+      line_items: [
+        { id: 7, properties: [{ name: "_booking_hold", value: "x.y" }, { name: "_booking_tz", value: " Asia/Kolkata " }] },
+        { id: 8, properties: [{ name: "_booking_hold", value: "x.y" }, { name: "_booking_tz", value: "Not/AZone" }] },
+      ],
+    });
+    expect(good.timezone).toBe("Asia/Kolkata");
+    expect(bad.timezone).toBeNull();
   });
 
   it("defaults bad seats to 1 and bad starts to null", () => {

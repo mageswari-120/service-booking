@@ -2,17 +2,18 @@ import type { LoaderFunctionArgs } from "@remix-run/node";
 import { DateTime } from "luxon";
 
 import { loadBookableServices, seatRules } from "../lib/booking/context.server";
-import { monthSlotsMany, type MonthSlot } from "../lib/booking/month.server";
+import { monthSlotsMany, viewZone, type MonthSlot } from "../lib/booking/month.server";
 import { NOT_BOOKABLE, proxyJson, proxyShop } from "../lib/booking/proxy.server";
 
 /**
- * GET /apps/booking/calendar?month=YYYY-MM[&product=<id>]
+ * GET /apps/booking/calendar?month=YYYY-MM[&product=<id>][&tz=<IANA zone>]
  *
  * The "Booking calendar" block's month view: every active service of the shop
  * (or only the given product's), each with its slots per day. Services are
  * sent once and referenced by index from `days`, so a busy month stays small.
  *
- * Day keys are in each service's own timezone, as in /availability. A day
+ * Day keys are in the visitor's timezone (`tz`), else each service's own, as
+ * in /availability. A day
  * whose slots are all taken is still listed (every `remaining` 0) so the
  * calendar can show it as sold out. 404 `{ bookable: false }` when the shop
  * (or product) has no bookable services.
@@ -30,16 +31,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   if (!services.length) return proxyJson(NOT_BOOKABLE, 404);
 
   const now = new Date();
+  const tz = url.searchParams.get("tz");
   const requested = url.searchParams.get("month");
   const month = /^\d{4}-\d{2}$/.test(requested ?? "")
     ? (requested as string)
-    : DateTime.fromJSDate(now, { zone: services[0].service.geometry.timezone }).toFormat("yyyy-MM");
+    : DateTime.fromJSDate(now, { zone: viewZone(services[0].service, tz) }).toFormat("yyyy-MM");
 
   const slotsStarted = performance.now();
   const months = await monthSlotsMany(
     services.map((s) => s.service),
     month,
     now,
+    tz,
   );
   const slotsMs = performance.now() - slotsStarted;
 

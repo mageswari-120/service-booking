@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { useFetcher, useLoaderData, useSearchParams } from "@remix-run/react";
 import { useAppBridge } from "@shopify/app-bridge-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Badge,
   BlockStack,
@@ -16,10 +16,45 @@ import {
 
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
-import { getOrCreateShop } from "../lib/shop.server";
+import { getOrCreateShop, resolveTimezone } from "../lib/shop.server";
 import { lookupShopName, sendBookingConfirmation } from "../lib/bookings/confirmation.server";
 
 const PAGE_SIZE = 50;
+
+const WHEN_FORMAT: Intl.DateTimeFormatOptions = {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+};
+
+/**
+ * The viewer's browser timezone, or null during SSR and the first client
+ * render (so hydration matches the server HTML).
+ */
+function useViewerTimeZone(): string | null {
+  const [zone, setZone] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      setZone(Intl.DateTimeFormat().resolvedOptions().timeZone || null);
+    } catch {
+      setZone(null);
+    }
+  }, []);
+  return zone;
+}
+
+/** A booking time in the viewer's own timezone, e.g. "Wed, Nov 26, 2026, 3:30 PM GMT+5:30". */
+function LocalTime({ iso, fallback, zone }: { iso: string; fallback: string; zone: string | null }) {
+  if (!zone) return <>{fallback}</>;
+  try {
+    return <>{new Intl.DateTimeFormat(undefined, { ...WHEN_FORMAT, timeZone: zone, timeZoneName: "short" }).format(new Date(iso))}</>;
+  } catch {
+    return <>{fallback}</>;
+  }
+}
 
 /**
  * Every booking taken through the storefront widget, newest appointment first.
@@ -52,21 +87,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         shopifyOrderId: true,
         shopifyOrderName: true,
         confirmationSentAt: true,
-        service: { select: { title: true } },
+        service: { select: { title: true, timezone: true } },
         staff: { select: { name: true } },
       },
     }),
   ]);
 
-  const when = new Intl.DateTimeFormat("en-US", {
-    timeZone: shop.timezone,
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  // Server-rendered fallback in the service's zone; the page re-formats each
+  // time in the merchant's own browser timezone once it loads.
+  const when = (date: Date, timeZone: string) =>
+    new Intl.DateTimeFormat("en-US", { ...WHEN_FORMAT, timeZone, timeZoneName: "short" }).format(date);
 
   return {
     timezone: shop.timezone,
@@ -75,7 +105,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     total,
     bookings: bookings.map((b) => ({
       id: b.id,
-      when: when.format(b.startsAt),
+      startsAt: b.startsAt.toISOString(),
+      when: when(b.startsAt, resolveTimezone(b.service.timezone, shop.timezone)),
       service: b.service.title,
       staff: b.staff?.name ?? null,
       seats: b.seats,
@@ -146,9 +177,13 @@ const STATUS_BADGE: Record<string, { label: string; tone?: "success" | "critical
 export default function Bookings() {
   const { bookings, timezone, page, hasNext, total } = useLoaderData<typeof loader>();
   const [, setSearchParams] = useSearchParams();
+  const viewerZone = useViewerTimeZone();
 
   return (
-    <Page title="Bookings" subtitle={`${total} total · times shown in ${timezone}`}>
+    <Page
+      title="Bookings"
+      subtitle={`${total} total · times shown in ${viewerZone ? `your local time (${viewerZone})` : timezone}`}
+    >
       <Card padding="0">
         {bookings.length === 0 ? (
           <EmptyState
@@ -187,7 +222,7 @@ export default function Bookings() {
                 <IndexTable.Row id={b.id} key={b.id} position={index}>
                   <IndexTable.Cell>
                     <Text as="span" fontWeight="semibold">
-                      {b.when}
+                      <LocalTime iso={b.startsAt} fallback={b.when} zone={viewerZone} />
                     </Text>
                   </IndexTable.Cell>
                   <IndexTable.Cell>

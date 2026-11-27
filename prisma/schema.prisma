@@ -316,6 +316,8 @@ model Booking {
   customerName  String?
   customerEmail String?
   customerPhone String?
+  /// The customer's IANA timezone from the storefront (`_booking_tz`), used for their emails.
+  customerTimezone String?
 
   status        BookingStatus @default(CONFIRMED)
   conflictNote  String?

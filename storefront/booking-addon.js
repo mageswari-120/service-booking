@@ -120,8 +120,17 @@
       return node;
     }
 
+    /** The visitor's own timezone: every time is shown where they are. */
+    var viewerTz = (function () {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+      } catch (e) {
+        return null;
+      }
+    })();
+
     function fmt(iso, opts) {
-      return new Intl.DateTimeFormat(locale, Object.assign({ timeZone: state.timezone }, opts)).format(
+      return new Intl.DateTimeFormat(locale, Object.assign({ timeZone: viewerTz || state.timezone }, opts)).format(
         new Date(iso),
       );
     }
@@ -131,7 +140,7 @@
     }
 
     function zoneName(style) {
-      return new Intl.DateTimeFormat(locale, { timeZone: state.timezone, timeZoneName: style })
+      return new Intl.DateTimeFormat(locale, { timeZone: viewerTz || state.timezone, timeZoneName: style })
         .formatToParts(new Date())
         .find(function (p) {
           return p.type === "timeZoneName";
@@ -492,6 +501,8 @@
       if (!inflight[key]) {
         var params = { variant: state.variantId };
         if (month) params.month = month;
+        // Days in the visitor's timezone, like the times on them.
+        if (viewerTz) params.tz = viewerTz;
         var settle = function () {
           delete inflight[key];
         };

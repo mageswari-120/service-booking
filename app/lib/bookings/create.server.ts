@@ -180,6 +180,7 @@ export async function createBookingsFromOrder(
           customerName: customer.name,
           customerEmail: customer.email,
           customerPhone: customer.phone,
+          customerTimezone: line.timezone,
           status,
           conflictNote,
           intakeAnswers: (validHold?.intakeAnswers ?? undefined) as Prisma.InputJsonValue | undefined,
@@ -194,7 +195,7 @@ export async function createBookingsFromOrder(
     out.push({
       ...result,
       serviceTitle: svc.title,
-      timezone: resolveTimezone(svc.timezone, svc.shop.timezone),
+      timezone: result.booking.customerTimezone ?? resolveTimezone(svc.timezone, svc.shop.timezone),
     });
   }
   return out;

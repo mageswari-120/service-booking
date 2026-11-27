@@ -118,6 +118,8 @@
       var params = {};
       if (month) params.month = month;
       if (root.dataset.product) params.product = root.dataset.product;
+      // Days in the visitor's timezone, like the times on them.
+      if (viewerTz) params.tz = viewerTz;
       var done = function () {
         delete inflight[key];
       };
@@ -316,8 +318,17 @@
       popEl.textContent = "";
     }
 
+    /** The visitor's own timezone: every time is shown where they are. */
+    var viewerTz = (function () {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+      } catch (e) {
+        return null;
+      }
+    })();
+
     function fmt(iso, opts) {
-      return new Intl.DateTimeFormat(locale, Object.assign({ timeZone: pop.state.timezone }, opts)).format(new Date(iso));
+      return new Intl.DateTimeFormat(locale, Object.assign({ timeZone: viewerTz || pop.state.timezone }, opts)).format(new Date(iso));
     }
 
     function formatTime(iso) {
@@ -357,7 +368,7 @@
       popEl.appendChild(el("div", { class: "sb-bcal__card", role: "dialog", "aria-modal": "true", "aria-label": service.title }, [
         el("span", { class: "sb-bcal__bar", "aria-hidden": "true" }),
         el("h3", { class: "sb-bcal__title", text: service.title }),
-        el("p", { class: "sb-muted sb-bcal__date", text: date + " (" + service.timezone + ")" }),
+        el("p", { class: "sb-muted sb-bcal__date", text: date + " (" + (viewerTz || service.timezone) + ")" }),
         service.duration ? el("p", { class: "sb-bcal__meta", text: t("Minutes", { count: service.duration }) }) : null,
         pick,
         details,

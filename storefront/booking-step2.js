@@ -47,6 +47,14 @@ import "./booking-extras.js";
   /** Called by booking.js with its helpers; renders into ctx.detailsEl. */
   window.__sbStep2 = function (ctx) {
     var state = ctx.state;
+    /** The visitor's own timezone: every time is shown where they are. */
+    var viewerTz = (function () {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+      } catch (e) {
+        return null;
+      }
+    })();
     var el = ctx.el;
     var t = ctx.t;
     var slot = state.pick;
@@ -374,6 +382,8 @@ import "./booking-extras.js";
           });
         }
         props._booking_start = h.start;
+        // The customer's zone, so the confirmation email uses the same time they saw.
+        if (viewerTz) props._booking_tz = viewerTz;
         props._booking_hold = h.token;
         props._booking_seats = String(seats);
         if (staff) props._booking_staff = staff.id;
@@ -470,18 +480,18 @@ import "./booking-extras.js";
       });
     }
 
-    /** "IST", "GMT+4", …: the short name of the service's zone at that time. */
+    /** "IST", "GMT+4", …: the short name of the visitor's zone at that time. */
     function zoneName(iso) {
       try {
         var parts = new Intl.DateTimeFormat(document.documentElement.lang || undefined, {
-          timeZone: state.timezone,
+          timeZone: viewerTz || state.timezone,
           timeZoneName: "short",
         }).formatToParts(new Date(iso));
         for (var i = 0; i < parts.length; i++) {
           if (parts[i].type === "timeZoneName") return parts[i].value;
         }
       } catch (e) {}
-      return state.timezone;
+      return viewerTz || state.timezone;
     }
 
     function goToCart(base) {

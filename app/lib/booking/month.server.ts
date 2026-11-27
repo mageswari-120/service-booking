@@ -1,4 +1,4 @@
-import { DateTime } from "luxon";
+import { DateTime, IANAZone } from "luxon";
 
 import { comboSlots, groupByDay } from "../slots/engine";
 import type { ComputeSlotsParams, Slot } from "../slots/types";
@@ -17,7 +17,7 @@ export interface MonthSlot {
 }
 
 export interface MonthSlots {
-  /** The month scanned, "YYYY-MM" in the service's timezone. */
+  /** The month scanned, "YYYY-MM" in the view zone (see `viewZone`). */
   month: string;
   /** Bounds for the storefront's prev/next buttons. */
   firstMonth: string;
@@ -32,12 +32,27 @@ export interface MonthSlots {
 }
 
 /**
+ * The zone days and months are counted in: the visitor's (`tz`, sent by the
+ * storefront, so an evening that runs past their midnight lands on their
+ * next day) when it's a real IANA zone, else the service's own.
+ */
+export function viewZone(service: BookableService, tz?: string | null): string {
+  return tz && IANAZone.isValidZone(tz) ? tz : service.geometry.timezone;
+}
+
+/**
  * The month to scan (`monthParam` "YYYY-MM"; invalid or missing means the
  * current month) clamped to what can be booked: from now to the service's
- * booking horizon. `from >= to` means nothing in it can be booked.
+ * booking horizon. `from >= to` means nothing in it can be booked. Days and
+ * months are those of `tz` (see `viewZone`).
  */
-function monthRange(service: BookableService, monthParam: string | null, now: Date) {
-  const zone = service.geometry.timezone;
+function monthRange(
+  service: BookableService,
+  monthParam: string | null,
+  now: Date,
+  tz?: string | null,
+) {
+  const zone = viewZone(service, tz);
   const nowLocal = DateTime.fromJSDate(now, { zone });
   const lastLocal = nowLocal.plus({ days: service.geometry.maxAdvanceDays });
   const requested = DateTime.fromFormat(monthParam ?? "", "yyyy-MM", { zone });
@@ -48,21 +63,18 @@ function monthRange(service: BookableService, monthParam: string | null, now: Da
     lastMonth: lastLocal.toFormat("yyyy-MM"),
     from: DateTime.max(month.startOf("month"), nowLocal),
     to: DateTime.min(month.endOf("month"), lastLocal),
+    zone,
   };
 }
 
 type Range = ReturnType<typeof monthRange>;
 
 function shapeMonth(range: Range, params: ComputeSlotsParams | null): MonthSlots {
-  return shapeSlots(
-    range,
-    params ? comboSlots([{ ...params, includeFull: true }]) : [],
-    params?.service.timezone ?? "UTC",
-  );
+  return shapeSlots(range, params ? comboSlots([{ ...params, includeFull: true }]) : []);
 }
 
-function shapeSlots(range: Range, list: Slot[], zone: string): MonthSlots {
-  const byDay = groupByDay(list, zone);
+function shapeSlots(range: Range, list: Slot[]): MonthSlots {
+  const byDay = groupByDay(list, range.zone);
   const days = Object.keys(byDay)
     .filter((day) => byDay[day].some((s) => s.remaining > 0))
     .sort();
@@ -96,8 +108,9 @@ export async function monthSlots(
   service: BookableService,
   monthParam: string | null,
   now: Date = new Date(),
+  tz?: string | null,
 ): Promise<MonthSlots> {
-  const range = monthRange(service, monthParam, now);
+  const range = monthRange(service, monthParam, now, tz);
   const params =
     range.from < range.to
       ? await buildSlotParams(service, range.from.toJSDate(), range.to.toJSDate(), now)
@@ -115,10 +128,11 @@ export async function monthComboSlots(
   rest: BookableService[],
   monthParam: string | null,
   now: Date = new Date(),
+  tz?: string | null,
 ): Promise<MonthSlots> {
-  if (!rest.length) return monthSlots(service, monthParam, now);
-  const range = monthRange(service, monthParam, now);
-  if (range.from >= range.to) return shapeSlots(range, [], service.geometry.timezone);
+  if (!rest.length) return monthSlots(service, monthParam, now, tz);
+  const range = monthRange(service, monthParam, now, tz);
+  if (range.from >= range.to) return shapeSlots(range, []);
   const from = range.from.toJSDate();
   const to = range.to.toJSDate();
   const pad = 24 * 60 * 60_000;
@@ -129,7 +143,7 @@ export async function monthComboSlots(
     ),
   ]);
   chain[0] = { ...chain[0], includeFull: true };
-  return shapeSlots(range, comboSlots(chain), service.geometry.timezone);
+  return shapeSlots(range, comboSlots(chain));
 }
 
 /**
@@ -140,8 +154,9 @@ export async function monthSlotsMany(
   services: BookableService[],
   monthParam: string | null,
   now: Date = new Date(),
+  tz?: string | null,
 ): Promise<MonthSlots[]> {
-  const ranges = services.map((service) => monthRange(service, monthParam, now));
+  const ranges = services.map((service) => monthRange(service, monthParam, now, tz));
   const open = services
     .map((service, i) => ({ service, i, range: ranges[i] }))
     .filter(({ range }) => range.from < range.to);
